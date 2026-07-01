@@ -83,6 +83,21 @@ text-decoration:none;color:var(--text);transition:border-color .12s}
 .market:hover{border-color:var(--accent)}
 .market .ico{width:18px;height:18px;border-radius:5px;display:inline-flex;
 align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff}
+/* live listing cards */
+.listings{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.listing{display:flex;gap:12px;align-items:center;background:var(--card);
+border:1px solid var(--border);border-radius:10px;padding:8px 10px;
+text-decoration:none;color:var(--text);transition:border-color .12s}
+.listing:hover{border-color:var(--accent)}
+.listing img{width:56px;height:56px;object-fit:cover;border-radius:8px;
+background:var(--soft);flex:0 0 auto}
+.listing .info{min-width:0;flex:1 1 auto}
+.listing .lt{font-size:13px;line-height:1.35;display:-webkit-box;
+-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.listing .lm{font-size:12px;color:var(--dim);margin-top:3px;display:flex;
+gap:8px;flex-wrap:wrap}
+.listing .lp{font-weight:700;font-size:16px;min-width:70px;text-align:right;flex:0 0 auto}
+.lstatus{font-size:13px;color:var(--dim);padding:10px 12px;border:1px dashed var(--border);border-radius:10px}
 /* item tiles (All view) */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
 .tile{background:var(--card);border:1px solid var(--border);border-radius:11px;
@@ -229,7 +244,7 @@ var LS_KEY = "universal-tracker.draft.v1";
 // matching categories (case-insensitive) so the audiophile used-gear markets
 // only appear on headphones, not on chairs.
 var MARKETS = [
-  {name:"eBay", color:"#e53238", all:true, url:function(q,mn,mx){
+  {name:"eBay", color:"#e53238", all:true, live:"ebay", url:function(q,mn,mx){
     return "https://www.ebay.com/sch/i.html?_nkw="+q+(mn?"&_udlo="+mn:"")+(mx?"&_udhi="+mx:"");}},
   {name:"Facebook", color:"#1877f2", all:true, url:function(q,mn,mx){
     return "https://www.facebook.com/marketplace/search/?query="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
@@ -394,6 +409,13 @@ function renderDetail(main,item){
   lbl.appendChild(el("span","note","“"+queryOf(item)+"”"+(hasRange(item)?" · "+fmtRange(item):"")));
   main.appendChild(lbl);
   main.appendChild(marketRow(item));
+
+  // live listings — for each source that supports a server-side preview
+  if(proxyBase()){
+    sourcesFor(item).filter(function(m){return m.live;}).forEach(function(m){
+      renderLiveListings(main,item,m.live,m.name);
+    });
+  }
 }
 function marketRow(item){
   var q=encodeURIComponent(queryOf(item));
@@ -409,6 +431,42 @@ function marketRow(item){
   return wrap;
 }
 function fact(k,v){var f=el("div","fact");f.appendChild(el("div","k",k));f.appendChild(el("div","v",v));return f;}
+
+// ---- live listings (via the Cloudflare Worker proxy) ----------------------
+function proxyBase(){return (state.config.listingsProxy||"").trim().replace(/\/+$/,"");}
+function fetchListings(source,item){
+  var base=proxyBase();if(!base)return Promise.resolve(null);
+  var mn=item.priceMin!=null?Math.round(item.priceMin):"";
+  var mx=item.priceMax!=null?Math.round(item.priceMax):"";
+  var url=base+"?source="+encodeURIComponent(source)+"&q="+encodeURIComponent(queryOf(item))+
+    (mn!==""?"&min="+mn:"")+(mx!==""?"&max="+mx:"");
+  return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
+}
+function listingCard(l){
+  var a=el("a","listing");a.href=l.url||"#";a.target="_blank";a.rel="noopener";
+  if(l.image){var img=document.createElement("img");img.src=l.image;img.alt="";img.loading="lazy";
+    img.onerror=function(){this.style.visibility="hidden";};a.appendChild(img);}
+  var info=el("div","info");info.appendChild(el("div","lt",l.title||"(no title)"));
+  var m=el("div","lm");
+  if(l.condition)m.appendChild(el("span",null,l.condition));
+  if(l.location)m.appendChild(el("span",null,l.location));
+  if(m.childNodes.length)info.appendChild(m);
+  a.appendChild(info);
+  a.appendChild(el("div","lp",l.price!=null?fmtPrice(l.price):"—"));
+  return a;
+}
+function renderLiveListings(main,item,source,label){
+  var sl=el("div","seclabel");sl.appendChild(el("span",null,"Live "+label+" listings"));main.appendChild(sl);
+  var box=el("div","listings");var status=el("div","lstatus","Loading "+label+" listings…");box.appendChild(status);main.appendChild(box);
+  fetchListings(source,item).then(function(res){
+    box.innerHTML="";
+    if(!res){box.appendChild(el("div","lstatus","Listings proxy not configured."));return;}
+    if(res.error){box.appendChild(el("div","lstatus","Couldn’t load "+label+" listings — "+res.error));return;}
+    var ls=res.listings||[];
+    if(!ls.length){box.appendChild(el("div","lstatus","No "+label+" listings found in range right now."));return;}
+    ls.forEach(function(l){box.appendChild(listingCard(l));});
+  });
+}
 
 // ---- edit / add -----------------------------------------------------------
 function openEdit(id){

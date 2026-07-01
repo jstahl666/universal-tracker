@@ -8,8 +8,13 @@
 - [x] Create public GitHub repo + push
 - [x] Enable GitHub Pages
 
+## Live listings (in progress)
+- [x] Section 1 — eBay: Cloudflare Worker proxy (worker/) + front-end card rendering
+- [ ] **WAITING ON JEREMY:** eBay dev keyset + Cloudflare account → deploy Worker (see worker/README.md) → give me the Worker URL to wire into watchlist.json config.listingsProxy
+- [ ] Section 2 — Craigslist (RSS → JSON, new `source` branch in worker.js)
+- [ ] Section 3 — Reddit audio markets (r/AVexchange, r/hardwareswap) if JSON cooperates
+- [ ] Facebook/OfferUp/Mercari/Amazon stay click-out buttons (no API)
+
 ## Next / maybe
-- [ ] Browser smoke test: add item → marketplace links → Save-to-GitHub round-trip
 - [ ] Consider more marketplaces (StockX/Reverb/Discogs) or making the list configurable
-- [ ] Optional: per-item image thumbnail
 - [ ] Optional: export/import JSON without the GitHub round-trip

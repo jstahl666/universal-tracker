@@ -17,3 +17,19 @@
   second page to reserve the root for, so the app takes the Pages root directly.
 
 - **Public repo.** Required for free GitHub Pages.
+
+- **Live listings need a backend; static page can't fetch them.** Browsers block
+  cross-origin fetches to eBay/Craigslist/etc (CORS), and those sites need auth / block
+  bots. To show listings inline we added a tiny **Cloudflare Worker** (`worker/`) that
+  queries server-side and returns clean JSON. Chosen over Fly/homeserver: free, always-on,
+  zero-maintenance, ideal for an on-demand proxy. Load is **live per item-open**, not a
+  scheduled feed — always current, no cron.
+
+- **eBay first, others incremental.** eBay Browse API returns clean structured listings
+  (title/price/image/link) via app-only OAuth — the one reliable source. Craigslist (RSS)
+  and Reddit audio markets come next as extra `source` branches. Facebook/OfferUp/Mercari/
+  Amazon have no usable API and stay as click-out buttons.
+
+- **Worker URL lives in `watchlist.json` config**, not hardcoded. If `config.listingsProxy`
+  is unset the page silently falls back to buttons-only, so the site never depends on the
+  Worker being up.
