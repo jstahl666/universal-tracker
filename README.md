@@ -13,9 +13,12 @@ chair-specific seed data and the built-in Slickdeals feed. Pure item tracker.
 - **Add / edit / remove items** with generic fields: Name, Category (freeform + autocomplete),
   Status (Active / Paused / Done), search query, Min/Max price, Link, Notes.
 - **Sidebar + "All items" grid** — every item as a tile, chip-tagged by category and status.
-- **Live marketplace search** per item — one-click deep-links into eBay, Facebook Marketplace,
-  Craigslist (region set in the toolbar), OfferUp, Mercari, and Google Shopping, pre-filled
-  with your search text and price range.
+- **Live marketplace search** per item — one-click deep-links, pre-filled with your search
+  text and (where supported) price range. Every item hits the universal sources: **eBay,
+  Facebook Marketplace, Craigslist** (region set in the toolbar)**, OfferUp, Mercari, Amazon,
+  Slickdeals, Google Shopping**. Category-specific sources add on top — **Headphones** also
+  get **r/AVexchange, r/hardwareswap, and Head-Fi** (audiophile used-gear markets). Add a new
+  category source by editing the `MARKETS` list (`all:true` = everywhere, `cats:[...]` = gated).
 - **Local-first editing** — edits save to your browser instantly (yellow "unsaved" banner).
   **Save to GitHub** copies the JSON and opens the `watchlist.json` editor so your list syncs
   across every device.

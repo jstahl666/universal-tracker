@@ -222,24 +222,42 @@ var BRANCH = "main";
 var EDIT_URL = "https://github.com/" + REPO + "/edit/" + BRANCH + "/watchlist.json";
 var LS_KEY = "universal-tracker.draft.v1";
 
-// Marketplaces. Each builds a search URL from the query + price range.
+// Sources. Each builds a search URL from the query + price range.
 // (Static pages can't scrape these sites directly, so we deep-link into
-//  each site's own search, pre-filtered by price.)
+//  each site's own search, pre-filtered by price where the site supports it.)
+// `all:true` shows the source for every item; `cats:[...]` limits a source to
+// matching categories (case-insensitive) so the audiophile used-gear markets
+// only appear on headphones, not on chairs.
 var MARKETS = [
-  {name:"eBay", color:"#e53238", url:function(q,mn,mx){
+  {name:"eBay", color:"#e53238", all:true, url:function(q,mn,mx){
     return "https://www.ebay.com/sch/i.html?_nkw="+q+(mn?"&_udlo="+mn:"")+(mx?"&_udhi="+mx:"");}},
-  {name:"Facebook", color:"#1877f2", url:function(q,mn,mx){
+  {name:"Facebook", color:"#1877f2", all:true, url:function(q,mn,mx){
     return "https://www.facebook.com/marketplace/search/?query="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
-  {name:"Craigslist", color:"#5b2d8e", url:function(q,mn,mx){
+  {name:"Craigslist", color:"#5b2d8e", all:true, url:function(q,mn,mx){
     var r=(state.config.craigslistRegion||"sfbay").trim()||"sfbay";
     return "https://"+r+".craigslist.org/search/sss?query="+q+(mn?"&min_price="+mn:"")+(mx?"&max_price="+mx:"");}},
-  {name:"OfferUp", color:"#15b468", url:function(q,mn,mx){
+  {name:"OfferUp", color:"#15b468", all:true, url:function(q,mn,mx){
     return "https://offerup.com/search?q="+q+(mn?"&price_min="+mn:"")+(mx?"&price_max="+mx:"");}},
-  {name:"Mercari", color:"#ff5a16", url:function(q,mn,mx){
+  {name:"Mercari", color:"#ff5a16", all:true, url:function(q,mn,mx){
     return "https://www.mercari.com/search/?keyword="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
-  {name:"Google", color:"#4285f4", url:function(q,mn,mx){
-    return "https://www.google.com/search?tbm=shop&q="+q;}}
+  {name:"Amazon", color:"#ff9900", all:true, url:function(q,mn,mx){
+    return "https://www.amazon.com/s?k="+q+(mn?"&low-price="+mn:"")+(mx?"&high-price="+mx:"");}},
+  {name:"Slickdeals", color:"#2c72c1", all:true, url:function(q,mn,mx){
+    return "https://slickdeals.net/newsearch.php?q="+q+"&searcharea=deals&searchin=first";}},
+  {name:"Google", color:"#4285f4", all:true, url:function(q,mn,mx){
+    return "https://www.google.com/search?tbm=shop&q="+q;}},
+  // audiophile used-gear markets — headphones only
+  {name:"AVexchange", color:"#ff4500", cats:["headphones"], url:function(q,mn,mx){
+    return "https://www.reddit.com/r/AVexchange/search/?q="+q+"&restrict_sr=1&sort=new";}},
+  {name:"HardwareSwap", color:"#e0533b", cats:["headphones"], url:function(q,mn,mx){
+    return "https://www.reddit.com/r/hardwareswap/search/?q="+q+"&restrict_sr=1&sort=new";}},
+  {name:"Head-Fi", color:"#0b7bd0", cats:["headphones"], url:function(q,mn,mx){
+    return "https://www.google.com/search?q="+q+"+for+sale+site:head-fi.org";}}
 ];
+function sourcesFor(item){
+  var cat=(item.category||"").toLowerCase();
+  return MARKETS.filter(function(m){return m.all||(m.cats&&m.cats.indexOf(cat)>=0);});
+}
 
 // Fresh install starts empty — add whatever you want to track.
 var DEFAULTS = {updated:"", config:{craigslistRegion:"sfbay"}, items:[]};
@@ -382,7 +400,7 @@ function marketRow(item){
   var mn=item.priceMin!=null?Math.round(item.priceMin):0;
   var mx=item.priceMax!=null?Math.round(item.priceMax):0;
   var wrap=el("div","markets");
-  MARKETS.forEach(function(m){
+  sourcesFor(item).forEach(function(m){
     var a=el("a","market");a.href=m.url(q,mn,mx);a.target="_blank";a.rel="noopener";
     var ico=el("span","ico",m.name[0]);ico.style.background=m.color;a.appendChild(ico);
     a.appendChild(el("span",null,m.name));
