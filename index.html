@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universal Tracker</title>
+<style>
+:root{--bg:#0F0F1A;--card:#1A1B2E;--border:#28294A;--text:#E8E8F4;
+--dim:#9090BB;--accent:#315CFD;--ok:#3DB86A;--warn:#FF7043;--soft:#13142440;}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);
+font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+a{color:inherit}
+button{font:inherit;cursor:pointer}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 24px 60px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:6px}
+h1{font-size:24px;margin:0}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+.sub b{color:var(--text)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}
+.toolbar .cl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+.toolbar .cl input{width:96px;padding:6px 8px;font-size:12px}
+.btn{background:var(--card);color:var(--text);border:1px solid var(--border);
+border-radius:8px;padding:7px 12px;font-size:13px;transition:border-color .12s;
+text-decoration:none;display:inline-block}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.1)}
+.banner{background:#2a2410;border:1px solid #5a4a14;color:#ffd479;
+border-radius:9px;padding:10px 14px;margin:0 0 16px;display:flex;
+gap:12px;align-items:center;flex-wrap:wrap;font-size:13px}
+.banner .grow{flex:1 1 auto;min-width:160px}
+.layout{display:grid;grid-template-columns:268px 1fr;gap:20px;align-items:start}
+@media(max-width:720px){.layout{grid-template-columns:1fr}}
+/* sidebar */
+.side{background:var(--card);border:1px solid var(--border);border-radius:12px;
+padding:10px;position:sticky;top:14px}
+.side h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+color:var(--dim);margin:6px 8px 8px}
+.item{width:100%;text-align:left;background:transparent;border:1px solid transparent;
+border-radius:9px;padding:9px 10px;margin-bottom:3px;display:block;color:var(--text)}
+.item:hover{background:var(--soft);border-color:var(--border)}
+.item.active{background:#1f2140;border-color:var(--accent)}
+.item .nm{font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px;justify-content:space-between}
+.item .meta{color:var(--dim);font-size:12px;margin-top:3px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.add{width:100%;margin-top:8px;border-style:dashed;text-align:center}
+/* chips */
+.chip{font-size:11px;border-radius:20px;padding:1px 8px;border:1px solid var(--border);
+color:var(--dim);background:var(--soft);white-space:nowrap}
+.chip.cat{color:#bcd0ff;border-color:#2c3a6b}
+.chip.st-active{color:var(--ok);border-color:#1f4a30}
+.chip.st-paused{color:var(--warn);border-color:#5a3320}
+.chip.st-done{color:var(--dim)}
+/* main */
+.main{min-width:0}
+.panelhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.panelhead h2{font-size:20px;margin:0}
+.panelhead .acts{margin-left:auto;display:flex;gap:6px}
+.linkbtn{background:transparent;border:none;color:var(--dim);font-size:12px;
+text-decoration:underline;padding:2px 4px}
+.linkbtn:hover{color:var(--accent)}
+/* detail */
+.detail{background:var(--card);border:1px solid var(--border);border-radius:12px;
+padding:18px 18px 6px;margin-bottom:18px}
+.facts{display:flex;flex-wrap:wrap;gap:18px 26px;margin:4px 0 12px}
+.fact{min-width:90px}
+.fact .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim)}
+.fact .v{font-size:15px;margin-top:2px}
+.notes{white-space:pre-wrap;color:var(--text);font-size:14px;
+background:var(--soft);border:1px solid var(--border);border-radius:8px;
+padding:10px 12px;margin:2px 0 12px}
+.seclabel{color:var(--dim);font-size:12px;text-transform:uppercase;
+letter-spacing:.06em;font-weight:700;margin:18px 0 10px;display:flex;
+align-items:baseline;gap:8px}
+.seclabel .note{font-weight:400;text-transform:none;letter-spacing:0;font-size:12px}
+/* marketplace buttons */
+.markets{display:flex;flex-wrap:wrap;gap:8px}
+.market{display:inline-flex;align-items:center;gap:7px;background:var(--card);
+border:1px solid var(--border);border-radius:9px;padding:8px 12px;font-size:13px;
+text-decoration:none;color:var(--text);transition:border-color .12s}
+.market:hover{border-color:var(--accent)}
+.market .ico{width:18px;height:18px;border-radius:5px;display:inline-flex;
+align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff}
+/* item tiles (All view) */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.tile{background:var(--card);border:1px solid var(--border);border-radius:11px;
+padding:14px;text-align:left;color:var(--text);display:flex;flex-direction:column;gap:8px}
+.tile:hover{border-color:var(--accent)}
+.tile .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.tile .name{font-weight:600;font-size:15px}
+.tile .chips{display:flex;gap:6px;flex-wrap:wrap}
+.tile .line{font-size:13px;color:var(--dim)}
+.tile .line b{color:var(--text)}
+.empty{color:var(--dim);padding:30px;text-align:center;
+border:1px dashed var(--border);border-radius:12px}
+/* modal */
+.modal{position:fixed;inset:0;background:#0008;display:flex;align-items:center;
+justify-content:center;padding:20px;z-index:50}
+.sheet{background:var(--card);border:1px solid var(--border);border-radius:14px;
+padding:22px;width:100%;max-width:480px;max-height:92vh;overflow:auto}
+.sheet h3{margin:0 0 14px;font-size:18px}
+label{display:block;font-size:12px;color:var(--dim);margin:12px 0 5px;
+text-transform:uppercase;letter-spacing:.04em}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--border);
+color:var(--text);border-radius:8px;padding:9px 11px;font:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+textarea{min-height:60px;resize:vertical}
+.hint{font-size:12px;color:var(--dim);margin-top:4px}
+.two{display:flex;gap:10px}
+.two>div{flex:1}
+.row{display:flex;gap:8px;margin-top:20px}
+.row .btn{flex:1;text-align:center}
+.jsonbox{width:100%;min-height:170px;font:13px/1.5 ui-monospace,Menlo,monospace}
+.steps{font-size:13px;color:var(--dim);padding-left:18px;margin:6px 0 14px}
+.steps li{margin-bottom:4px}
+.danger{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📋 Universal Tracker</h1>
+    <div class="toolbar">
+      <span class="cl" title="Craigslist needs a region for its search links">CL region
+        <input id="clRegion" placeholder="sfbay">
+      </span>
+      <button class="btn" id="refreshBtn" title="Reload items">↻ Refresh</button>
+    </div>
+  </header>
+  <div class="sub" id="sub">Loading…</div>
+
+  <div class="banner" id="banner" hidden>
+    <span class="grow">You have local changes that aren't saved to GitHub yet — they live only on this device until you save them.</span>
+    <button class="btn primary" id="saveBtn">Save to GitHub</button>
+    <button class="btn" id="discardBtn">Discard</button>
+  </div>
+
+  <div class="layout">
+    <aside class="side">
+      <h2>Tracking</h2>
+      <div id="itemList"></div>
+      <button class="btn add" id="addBtn">+ Add item</button>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+</div>
+
+<!-- Add / edit modal -->
+<div class="modal" id="editModal" hidden>
+  <div class="sheet">
+    <h3 id="editTitle">Add item</h3>
+    <label for="f_name">Name</label>
+    <input id="f_name" placeholder="e.g. Herman Miller Aeron, Size B">
+    <div class="two">
+      <div>
+        <label for="f_category">Category</label>
+        <input id="f_category" list="catList" placeholder="e.g. Office chair">
+        <datalist id="catList"></datalist>
+      </div>
+      <div>
+        <label for="f_status">Status</label>
+        <select id="f_status">
+          <option value="active">Active</option>
+          <option value="paused">Paused</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+    </div>
+    <label for="f_query">Search for (used on eBay, Craigslist, Facebook…)</label>
+    <input id="f_query" placeholder="e.g. herman miller aeron">
+    <div class="hint">The marketplace buttons search for this text. Defaults to the name if left blank.</div>
+    <div class="two">
+      <div>
+        <label for="f_min">Min price ($)</label>
+        <input id="f_min" type="number" inputmode="decimal" placeholder="any">
+      </div>
+      <div>
+        <label for="f_max">Max price ($)</label>
+        <input id="f_max" type="number" inputmode="decimal" placeholder="any">
+      </div>
+    </div>
+    <label for="f_link">Link (optional)</label>
+    <input id="f_link" placeholder="https://…">
+    <label for="f_notes">Notes (optional)</label>
+    <textarea id="f_notes" placeholder="Anything you want to remember…"></textarea>
+    <div class="row">
+      <button class="btn" id="editCancel">Cancel</button>
+      <button class="btn primary" id="editSave">Save</button>
+    </div>
+    <div class="row" id="deleteRow" hidden style="margin-top:8px">
+      <button class="btn" id="editDelete"><span class="danger">Remove this item</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- Save-to-GitHub modal -->
+<div class="modal" id="saveModal" hidden>
+  <div class="sheet">
+    <h3>Save to GitHub</h3>
+    <p style="font-size:13px;color:var(--dim);margin-top:0">This makes your tracked items the same on every device. The JSON below has been copied to your clipboard.</p>
+    <ol class="steps">
+      <li>Click <b>Open GitHub editor</b> (new tab).</li>
+      <li>Select all, paste the JSON below, replacing the file's contents.</li>
+      <li>Click <b>Commit changes</b> on GitHub.</li>
+      <li>Come back and click <b>I've saved it</b>.</li>
+    </ol>
+    <a class="btn primary" id="openGh" target="_blank" rel="noopener" style="margin-bottom:12px">Open GitHub editor ↗</a>
+    <textarea id="jsonOut" class="jsonbox" readonly></textarea>
+    <div class="row">
+      <button class="btn" id="saveClose">Close</button>
+      <button class="btn primary" id="saveDone">I've saved it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- config ---------------------------------------------------------------
+var REPO = "jstahl666/universal-tracker";
+var BRANCH = "main";
+var EDIT_URL = "https://github.com/" + REPO + "/edit/" + BRANCH + "/watchlist.json";
+var LS_KEY = "universal-tracker.draft.v1";
+
+// Marketplaces. Each builds a search URL from the query + price range.
+// (Static pages can't scrape these sites directly, so we deep-link into
+//  each site's own search, pre-filtered by price.)
+var MARKETS = [
+  {name:"eBay", color:"#e53238", url:function(q,mn,mx){
+    return "https://www.ebay.com/sch/i.html?_nkw="+q+(mn?"&_udlo="+mn:"")+(mx?"&_udhi="+mx:"");}},
+  {name:"Facebook", color:"#1877f2", url:function(q,mn,mx){
+    return "https://www.facebook.com/marketplace/search/?query="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
+  {name:"Craigslist", color:"#5b2d8e", url:function(q,mn,mx){
+    var r=(state.config.craigslistRegion||"sfbay").trim()||"sfbay";
+    return "https://"+r+".craigslist.org/search/sss?query="+q+(mn?"&min_price="+mn:"")+(mx?"&max_price="+mx:"");}},
+  {name:"OfferUp", color:"#15b468", url:function(q,mn,mx){
+    return "https://offerup.com/search?q="+q+(mn?"&price_min="+mn:"")+(mx?"&price_max="+mx:"");}},
+  {name:"Mercari", color:"#ff5a16", url:function(q,mn,mx){
+    return "https://www.mercari.com/search/?keyword="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
+  {name:"Google", color:"#4285f4", url:function(q,mn,mx){
+    return "https://www.google.com/search?tbm=shop&q="+q;}}
+];
+
+// Fresh install starts empty — add whatever you want to track.
+var DEFAULTS = {updated:"", config:{craigslistRegion:"sfbay"}, items:[]};
+
+// ---- state ----------------------------------------------------------------
+var state = {items:[], config:{craigslistRegion:"sfbay"}, selected:"__all__", dirty:false, updatedText:""};
+var editingId = null;
+
+// ---- helpers --------------------------------------------------------------
+function $(s,el){return (el||document).querySelector(s);}
+function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
+function slug(s){return (s||"item").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"item";}
+function fmtPrice(v){return v==null?"—":"$"+v.toLocaleString(undefined,{maximumFractionDigits:0});}
+function statusOf(it){return it.status||"active";}
+function numOrNull(v){if(v==null||v==="")return null;var n=parseFloat(v);return isFinite(n)?n:null;}
+function queryOf(it){return (it.query&&it.query.trim())||it.name;}
+
+// price range
+function hasRange(it){return it.priceMin!=null||it.priceMax!=null;}
+function fmtRange(it){
+  var lo=it.priceMin,hi=it.priceMax;
+  if(lo==null&&hi==null)return "Any";
+  if(lo!=null&&hi!=null)return fmtPrice(lo)+" – "+fmtPrice(hi);
+  if(hi!=null)return "≤ "+fmtPrice(hi);
+  return "≥ "+fmtPrice(lo);
+}
+
+// ---- data loading ---------------------------------------------------------
+function normalize(it){
+  return {
+    id:it.id||slug(it.name),name:it.name||"Untitled",
+    category:it.category||"Uncategorized",query:it.query||"",link:it.link||"",
+    priceMin:(it.priceMin!=null?it.priceMin:null),
+    // back-compat: an old single "target" becomes the max
+    priceMax:(it.priceMax!=null?it.priceMax:(it.target!=null?it.target:null)),
+    status:it.status||"active",notes:it.notes||""
+  };
+}
+function loadWatchlist(){
+  var draft=null;
+  try{var raw=localStorage.getItem(LS_KEY);if(raw)draft=JSON.parse(raw);}catch(e){}
+  if(draft&&draft.items){
+    state.items=draft.items.map(normalize);
+    state.config=draft.config||state.config;
+    state.updatedText=draft.updated?("edited locally · last saved "+draft.updated):"edited locally";
+    state.dirty=true;return Promise.resolve();
+  }
+  return fetch("./watchlist.json?cb="+Date.now()).then(function(r){
+    if(!r.ok)throw 0;return r.json();
+  }).then(function(j){
+    state.items=((j&&j.items)?j.items:DEFAULTS.items).map(normalize);
+    state.config=(j&&j.config)?j.config:{craigslistRegion:"sfbay"};
+    state.updatedText=(j&&j.updated)?("synced · updated "+j.updated):"synced";
+    state.dirty=false;
+  }).catch(function(){
+    state.items=DEFAULTS.items.map(normalize);
+    state.config={craigslistRegion:"sfbay"};state.updatedText="";state.dirty=false;
+  });
+}
+
+// ---- rendering ------------------------------------------------------------
+function statusChip(it){var s=statusOf(it);return el("span","chip st-"+s,s.charAt(0).toUpperCase()+s.slice(1));}
+function render(){
+  var n=state.items.length;
+  $("#sub").innerHTML="<b>"+n+"</b> item"+(n===1?"":"s")+" tracked"+(state.updatedText?" · "+state.updatedText:"");
+  $("#banner").hidden=!state.dirty;
+  if($("#clRegion").value!==(state.config.craigslistRegion||""))$("#clRegion").value=state.config.craigslistRegion||"";
+
+  var cats=[];state.items.forEach(function(i){if(cats.indexOf(i.category)<0)cats.push(i.category);});
+  var dl=$("#catList");dl.innerHTML="";cats.forEach(function(c){var o=el("option");o.value=c;dl.appendChild(o);});
+
+  var list=$("#itemList");list.innerHTML="";
+  list.appendChild(sideBtn("__all__","All items",null,state.items.length+" item"+(state.items.length===1?"":"s")));
+  state.items.forEach(function(it){list.appendChild(sideBtn(it.id,it.name,it.category,statusOf(it)));});
+  renderMain();
+}
+function sideBtn(id,name,category,sub){
+  var b=el("button","item"+(state.selected===id?" active":""));
+  b.onclick=function(){state.selected=id;render();};
+  var nm=el("div","nm");nm.appendChild(el("span",null,name));
+  b.appendChild(nm);
+  var meta=el("div","meta");
+  if(category)meta.appendChild(el("span","chip cat",category));
+  if(sub)meta.appendChild(el("span",null,sub));
+  b.appendChild(meta);
+  return b;
+}
+function renderMain(){
+  var main=$("#main");main.innerHTML="";
+  if(state.selected==="__all__")return renderAll(main);
+  var item=state.items.filter(function(i){return i.id===state.selected;})[0];
+  if(!item){state.selected="__all__";return renderAll(main);}
+  renderDetail(main,item);
+}
+function renderAll(main){
+  var head=el("div","panelhead");head.appendChild(el("h2",null,"All items"));main.appendChild(head);
+  if(!state.items.length){main.appendChild(el("div","empty","Nothing tracked yet. Click “+ Add item” to start tracking anything."));return;}
+  var grid=el("div","grid");state.items.forEach(function(it){grid.appendChild(tile(it));});main.appendChild(grid);
+}
+function tile(it){
+  var t=el("button","tile");t.onclick=function(){state.selected=it.id;render();};
+  var top=el("div","top");top.appendChild(el("div","name",it.name));t.appendChild(top);
+  var chips=el("div","chips");chips.appendChild(el("span","chip cat",it.category));chips.appendChild(statusChip(it));t.appendChild(chips);
+  if(hasRange(it)){var l=el("div","line");l.innerHTML="Price <b>"+fmtRange(it)+"</b>";t.appendChild(l);}
+  if(it.notes){t.appendChild(el("div","line",it.notes.length>70?it.notes.slice(0,70)+"…":it.notes));}
+  return t;
+}
+function renderDetail(main,item){
+  var head=el("div","panelhead");
+  head.appendChild(el("h2",null,item.name));
+  head.appendChild(el("span","chip cat",item.category));
+  head.appendChild(statusChip(item));
+  var acts=el("div","acts");
+  var back=el("button","linkbtn","← All");back.onclick=function(){state.selected="__all__";render();};
+  var edit=el("button","linkbtn","Edit");edit.onclick=function(){openEdit(item.id);};
+  acts.appendChild(back);acts.appendChild(edit);head.appendChild(acts);
+  main.appendChild(head);
+
+  var box=el("div","detail");
+  var facts=el("div","facts");
+  facts.appendChild(fact("Price range",fmtRange(item)));
+  facts.appendChild(fact("Status",statusOf(item).charAt(0).toUpperCase()+statusOf(item).slice(1)));
+  if(item.link){
+    var f=el("div","fact");f.appendChild(el("div","k","Link"));
+    var v=el("div","v");var a=el("a",null,"Open ↗");a.href=item.link;a.target="_blank";a.rel="noopener";a.style.color="var(--accent)";
+    v.appendChild(a);f.appendChild(v);facts.appendChild(f);
+  }
+  box.appendChild(facts);
+  if(item.notes)box.appendChild(el("div","notes",item.notes));
+  main.appendChild(box);
+
+  // marketplace search
+  var lbl=el("div","seclabel");lbl.appendChild(el("span",null,"Search live listings"));
+  lbl.appendChild(el("span","note","“"+queryOf(item)+"”"+(hasRange(item)?" · "+fmtRange(item):"")));
+  main.appendChild(lbl);
+  main.appendChild(marketRow(item));
+}
+function marketRow(item){
+  var q=encodeURIComponent(queryOf(item));
+  var mn=item.priceMin!=null?Math.round(item.priceMin):0;
+  var mx=item.priceMax!=null?Math.round(item.priceMax):0;
+  var wrap=el("div","markets");
+  MARKETS.forEach(function(m){
+    var a=el("a","market");a.href=m.url(q,mn,mx);a.target="_blank";a.rel="noopener";
+    var ico=el("span","ico",m.name[0]);ico.style.background=m.color;a.appendChild(ico);
+    a.appendChild(el("span",null,m.name));
+    wrap.appendChild(a);
+  });
+  return wrap;
+}
+function fact(k,v){var f=el("div","fact");f.appendChild(el("div","k",k));f.appendChild(el("div","v",v));return f;}
+
+// ---- edit / add -----------------------------------------------------------
+function openEdit(id){
+  editingId=id;
+  var it=id?state.items.filter(function(i){return i.id===id;})[0]:null;
+  $("#editTitle").textContent=it?"Edit item":"Add item";
+  $("#f_name").value=it?it.name:"";
+  $("#f_category").value=it?it.category:"";
+  $("#f_status").value=it?statusOf(it):"active";
+  $("#f_query").value=it?it.query:"";
+  $("#f_min").value=it&&it.priceMin!=null?it.priceMin:"";
+  $("#f_max").value=it&&it.priceMax!=null?it.priceMax:"";
+  $("#f_link").value=it?it.link:"";
+  $("#f_notes").value=it?it.notes:"";
+  $("#deleteRow").hidden=!it;
+  $("#editModal").hidden=false;
+  $("#f_name").focus();
+}
+function closeEdit(){$("#editModal").hidden=true;editingId=null;}
+function saveEdit(){
+  var name=$("#f_name").value.trim();
+  if(!name){$("#f_name").focus();return;}
+  var fields={
+    name:name,
+    category:$("#f_category").value.trim()||"Uncategorized",
+    status:$("#f_status").value,
+    query:$("#f_query").value.trim(),
+    priceMin:numOrNull($("#f_min").value),
+    priceMax:numOrNull($("#f_max").value),
+    link:$("#f_link").value.trim(),
+    notes:$("#f_notes").value.trim()
+  };
+  if(editingId){
+    var it=state.items.filter(function(i){return i.id===editingId;})[0];
+    for(var k in fields)it[k]=fields[k];
+  }else{
+    var id=slug(name),base=id,n=2;
+    while(state.items.some(function(i){return i.id===id;})){id=base+"-"+(n++);}
+    fields.id=id;
+    state.items.push(normalize(fields));
+    state.selected=id;
+  }
+  markDirty();closeEdit();render();
+}
+function deleteEdit(){
+  if(!editingId)return;
+  state.items=state.items.filter(function(i){return i.id!==editingId;});
+  if(state.selected===editingId)state.selected="__all__";
+  markDirty();closeEdit();render();
+}
+function markDirty(){
+  state.dirty=true;
+  try{localStorage.setItem(LS_KEY,JSON.stringify({items:state.items,config:state.config}));}catch(e){}
+}
+
+// ---- save to github -------------------------------------------------------
+function buildJson(){
+  var d=new Date(),pad=function(x){return (x<10?"0":"")+x;};
+  var stamp=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  return JSON.stringify({updated:stamp,config:state.config,items:state.items},null,2)+"\n";
+}
+function openSave(){
+  $("#jsonOut").value=buildJson();
+  $("#openGh").href=EDIT_URL;
+  try{navigator.clipboard&&navigator.clipboard.writeText($("#jsonOut").value);}catch(e){}
+  $("#saveModal").hidden=false;
+}
+function finishSave(){try{localStorage.removeItem(LS_KEY);}catch(e){}$("#saveModal").hidden=true;boot();}
+function discardDraft(){try{localStorage.removeItem(LS_KEY);}catch(e){}boot();}
+
+// ---- wiring ---------------------------------------------------------------
+$("#addBtn").onclick=function(){openEdit(null);};
+$("#editCancel").onclick=closeEdit;
+$("#editSave").onclick=saveEdit;
+$("#editDelete").onclick=deleteEdit;
+$("#editModal").onclick=function(e){if(e.target===this)closeEdit();};
+$("#saveBtn").onclick=openSave;
+$("#discardBtn").onclick=discardDraft;
+$("#saveClose").onclick=function(){$("#saveModal").hidden=true;};
+$("#saveDone").onclick=finishSave;
+$("#saveModal").onclick=function(e){if(e.target===this)this.hidden=true;};
+$("#refreshBtn").onclick=function(){boot();};
+$("#clRegion").onchange=function(){state.config.craigslistRegion=this.value.trim();markDirty();render();};
+document.addEventListener("keydown",function(e){if(e.key==="Escape"){closeEdit();$("#saveModal").hidden=true;}});
+$("#f_name").addEventListener("keydown",function(e){if(e.key==="Enter")saveEdit();});
+
+// ---- boot -----------------------------------------------------------------
+function boot(){
+  $("#sub").textContent="Loading…";
+  loadWatchlist().then(render);
+}
+boot();
+</script>
+</body>
+</html>
