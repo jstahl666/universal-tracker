@@ -1,7 +1,195 @@
 {
-  "updated": "",
+  "updated": "2026-07-01",
   "config": {
     "craigslistRegion": "sfbay"
   },
-  "items": []
+  "items": [
+    {
+      "id": "steelcase-any",
+      "name": "Steelcase (any chair deal)",
+      "category": "Office chair",
+      "query": "steelcase office chair",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 250,
+      "status": "active",
+      "notes": "Any Steelcase deal at/below target. Watch factory returns (Crandall) and Haworth too."
+    },
+    {
+      "id": "sihoo-doro-c300",
+      "name": "Sihoo Doro C300 (all-mesh)",
+      "category": "Office chair",
+      "query": "sihoo doro c300",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 260,
+      "status": "active",
+      "notes": "All-mesh seat — won't deflate. Top new-chair pick."
+    },
+    {
+      "id": "hm-sayl",
+      "name": "Herman Miller Sayl",
+      "category": "Office chair",
+      "query": "herman miller sayl",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 250,
+      "status": "active",
+      "notes": ""
+    },
+    {
+      "id": "hm-aeron",
+      "name": "Herman Miller Aeron",
+      "category": "Office chair",
+      "query": "herman miller aeron",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 500,
+      "status": "active",
+      "notes": "All-mesh. Size B for most builds."
+    },
+    {
+      "id": "steelcase-gesture",
+      "name": "Steelcase Gesture",
+      "category": "Office chair",
+      "query": "steelcase gesture",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 700,
+      "status": "active",
+      "notes": ""
+    },
+    {
+      "id": "steelcase-leap",
+      "name": "Steelcase Leap",
+      "category": "Office chair",
+      "query": "steelcase leap",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 500,
+      "status": "active",
+      "notes": ""
+    },
+    {
+      "id": "hifiman-sundara",
+      "name": "HiFiMan Sundara",
+      "category": "Headphones",
+      "query": "hifiman sundara",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 199,
+      "status": "active",
+      "notes": "Primary pick. Used target $150. Street new ~$179 (2026-06)."
+    },
+    {
+      "id": "hifiman-edition-xs",
+      "name": "HiFiMan Edition XS",
+      "category": "Headphones",
+      "query": "hifiman edition xs",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 379,
+      "status": "active",
+      "notes": "Stretch pick. Used target $250. Better sub extension than Sundara."
+    },
+    {
+      "id": "hifiman-he400se",
+      "name": "HiFiMan HE400se",
+      "category": "Headphones",
+      "query": "hifiman he400se",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 109,
+      "status": "active",
+      "notes": "Budget planar. Used target $90. Strong sub-bass for the price; great cheap EDM-mixing option."
+    },
+    {
+      "id": "hifiman-ananda",
+      "name": "HiFiMan Ananda",
+      "category": "Headphones",
+      "query": "hifiman ananda",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 450,
+      "status": "active",
+      "notes": "Step up from Sundara. Used target $350. Wider stage, more detail; Nano variant ~$500 new."
+    },
+    {
+      "id": "sennheiser-hd-6xx",
+      "name": "Sennheiser HD 6XX / HD 650",
+      "category": "Headphones",
+      "query": "sennheiser hd 6xx",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 199,
+      "status": "active",
+      "notes": "Alternate. Used target $150. Drop winding down / stock clearing. Sub-bass rolls off — weaker for EDM mixing."
+    },
+    {
+      "id": "sennheiser-hd-600",
+      "name": "Sennheiser HD 600",
+      "category": "Headphones",
+      "query": "sennheiser hd 600",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 249,
+      "status": "active",
+      "notes": "Same chassis as 650, brighter/flatter tuning. Used target $150. Reference mids."
+    },
+    {
+      "id": "sennheiser-hd-560s",
+      "name": "Sennheiser HD 560S",
+      "category": "Headphones",
+      "query": "sennheiser hd 560s",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 150,
+      "status": "active",
+      "notes": "Flat neutral mixing reference. Used target $110. ~$150 new street."
+    },
+    {
+      "id": "beyerdynamic-dt-900-pro-x",
+      "name": "Beyerdynamic DT 900 Pro X",
+      "category": "Headphones",
+      "query": "beyerdynamic dt 900 pro x",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 220,
+      "status": "active",
+      "notes": "Studio mixing reference, good extension. Used target $170. Bright, detailed."
+    },
+    {
+      "id": "beyerdynamic-dt-1990-pro",
+      "name": "Beyerdynamic DT 1990 Pro",
+      "category": "Headphones",
+      "query": "beyerdynamic dt 1990 pro",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 500,
+      "status": "active",
+      "notes": "High-detail open reference. Used target $350. Bright treble; two pad voicings."
+    },
+    {
+      "id": "audio-technica-ath-r70x",
+      "name": "Audio-Technica ATH-R70x",
+      "category": "Headphones",
+      "query": "audio-technica ath-r70x",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 280,
+      "status": "active",
+      "notes": "Open neutral reference, wide stage. Used target $200. Light on sub-bass."
+    },
+    {
+      "id": "akg-k712-pro",
+      "name": "AKG K712 Pro",
+      "category": "Headphones",
+      "query": "akg k712 pro",
+      "link": "",
+      "priceMin": null,
+      "priceMax": 300,
+      "status": "active",
+      "notes": "Open reference, wide stage, slightly warm. Used target $180. Light on sub-bass."
+    }
+  ]
 }
