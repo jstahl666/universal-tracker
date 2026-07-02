@@ -8,12 +8,12 @@
 - [x] Create public GitHub repo + push
 - [x] Enable GitHub Pages
 
-## Live listings (in progress)
+## Live listings
 - [x] Section 1 — eBay: Cloudflare Worker proxy (worker/) + front-end card rendering
-- [ ] **WAITING ON JEREMY:** eBay dev keyset + Cloudflare account → deploy Worker (see worker/README.md) → give me the Worker URL to wire into watchlist.json config.listingsProxy
-- [ ] Section 2 — Craigslist (RSS → JSON, new `source` branch in worker.js)
-- [ ] Section 3 — Reddit audio markets (r/AVexchange, r/hardwareswap) if JSON cooperates
-- [ ] Facebook/OfferUp/Mercari/Amazon stay click-out buttons (no API)
+- [x] Section 3 — Reddit audio markets (r/AVexchange, r/hardwareswap): `.rss` feed source (JSON is 403'd), tested via `wrangler dev`
+- [x] Section 2 — Craigslist: TESTED + ABANDONED (server-side 403 "blocked"; stays a button). See decisions.md
+- [x] Facebook/OfferUp/Mercari/Amazon stay click-out buttons (no API)
+- [ ] **WAITING ON EBAY:** dev keyset approval (Jeremy applied). Then: `wrangler login` → `wrangler secret put` both keys → `wrangler deploy` → give me the Worker URL to wire into watchlist.json config.listingsProxy. Reddit will start working the moment the Worker is deployed too (no keys needed).
 
 ## Next / maybe
 - [ ] Consider more marketplaces (StockX/Reverb/Discogs) or making the list configurable

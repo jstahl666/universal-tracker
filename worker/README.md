@@ -1,10 +1,21 @@
 # Listings proxy — Cloudflare Worker
 
 The dashboard is a static page, so it can't fetch marketplace listings directly
-(CORS + auth + bot-blocking). This Worker runs server-side, holds the eBay API
-keys, queries eBay's Browse API, and returns clean JSON the page renders as cards.
+(CORS + auth + bot-blocking). This Worker runs server-side and returns clean
+JSON the page renders as cards.
 
-**Endpoint:** `GET /?source=ebay&q=<query>&min=<usd>&max=<usd>`
+**Endpoint:** `GET /?source=<src>&q=<query>&min=<usd>&max=<usd>[&sub=<subreddit>]`
+
+## Sources (what actually works server-side)
+
+| source | status | notes |
+|--------|--------|-------|
+| `ebay` | ✅ solid | Browse API, app-only OAuth. Needs keys (below). |
+| `reddit` | ⚠️ works, flaky | Uses the `.rss` (Atom) feed — the `.json` API hard-403s non-OAuth clients. Reddit rate-limits (429) per IP; a Worker's shared IP hits that intermittently, so the page degrades to a friendly note. Needs `&sub=<subreddit>`. Price is regex'd from the post title ([WTS] threads); null when the price is only in the body. |
+| ~~craigslist~~ | ❌ not viable | Craigslist hard-blocks programmatic search/RSS fetches (`403` "Your request has been blocked") even from a residential IP — worse from a Worker's data-center IP. Stays a **click-out button** in the UI, never inline. |
+
+Everything else (Facebook, OfferUp, Mercari, Amazon) has no usable open API and
+stays a click-out button too. **eBay is the only fully reliable inline source.**
 
 ---
 
@@ -50,13 +61,17 @@ Commit that, and the dashboard shows live eBay listings under each item.
 
 ## Test locally without the dashboard
 ```bash
-wrangler dev
+wrangler dev --local
 # then in another shell:
-curl "http://localhost:8787/?source=ebay&q=hifiman%20sundara&max=199"
+curl "http://localhost:8787/?source=ebay&q=hifiman%20sundara&max=199"   # needs keys
+curl "http://localhost:8787/?source=reddit&sub=hardwareswap&q=headphones"  # no keys
 ```
+Note: `wrangler dev` fetches from *your* IP, so `reddit` works more reliably
+locally than once deployed (Worker shares a data-center IP → more 429s).
 
 ## Notes
 - Free tiers: Cloudflare Workers = 100k requests/day; eBay Browse API = 5k calls/day.
   On-demand per item-open, you'll use a tiny fraction.
-- Only **eBay** is wired today. Craigslist (RSS) and the Reddit audio markets are
-  planned next; each is just another `source` branch in `src/worker.js`.
+- **eBay** and **reddit** are wired. Craigslist was tried and abandoned
+  (hard-blocked, see the sources table). Adding a new source = one more
+  `source` branch in `src/worker.js`.

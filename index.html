@@ -262,9 +262,9 @@ var MARKETS = [
   {name:"Google", color:"#4285f4", all:true, url:function(q,mn,mx){
     return "https://www.google.com/search?tbm=shop&q="+q;}},
   // audiophile used-gear markets — headphones only
-  {name:"AVexchange", color:"#ff4500", cats:["headphones"], url:function(q,mn,mx){
+  {name:"AVexchange", color:"#ff4500", cats:["headphones"], live:"reddit", liveParams:{sub:"AVexchange"}, url:function(q,mn,mx){
     return "https://www.reddit.com/r/AVexchange/search/?q="+q+"&restrict_sr=1&sort=new";}},
-  {name:"HardwareSwap", color:"#e0533b", cats:["headphones"], url:function(q,mn,mx){
+  {name:"HardwareSwap", color:"#e0533b", cats:["headphones"], live:"reddit", liveParams:{sub:"hardwareswap"}, url:function(q,mn,mx){
     return "https://www.reddit.com/r/hardwareswap/search/?q="+q+"&restrict_sr=1&sort=new";}},
   {name:"Head-Fi", color:"#0b7bd0", cats:["headphones"], url:function(q,mn,mx){
     return "https://www.google.com/search?q="+q+"+for+sale+site:head-fi.org";}}
@@ -413,7 +413,7 @@ function renderDetail(main,item){
   // live listings — for each source that supports a server-side preview
   if(proxyBase()){
     sourcesFor(item).filter(function(m){return m.live;}).forEach(function(m){
-      renderLiveListings(main,item,m.live,m.name);
+      renderLiveListings(main,item,m.live,m.name,m.liveParams);
     });
   }
 }
@@ -434,12 +434,13 @@ function fact(k,v){var f=el("div","fact");f.appendChild(el("div","k",k));f.appen
 
 // ---- live listings (via the Cloudflare Worker proxy) ----------------------
 function proxyBase(){return (state.config.listingsProxy||"").trim().replace(/\/+$/,"");}
-function fetchListings(source,item){
+function fetchListings(source,item,extra){
   var base=proxyBase();if(!base)return Promise.resolve(null);
   var mn=item.priceMin!=null?Math.round(item.priceMin):"";
   var mx=item.priceMax!=null?Math.round(item.priceMax):"";
   var url=base+"?source="+encodeURIComponent(source)+"&q="+encodeURIComponent(queryOf(item))+
     (mn!==""?"&min="+mn:"")+(mx!==""?"&max="+mx:"");
+  if(extra)for(var k in extra)url+="&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]);
   return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
 }
 function listingCard(l){
@@ -455,10 +456,10 @@ function listingCard(l){
   a.appendChild(el("div","lp",l.price!=null?fmtPrice(l.price):"—"));
   return a;
 }
-function renderLiveListings(main,item,source,label){
+function renderLiveListings(main,item,source,label,extra){
   var sl=el("div","seclabel");sl.appendChild(el("span",null,"Live "+label+" listings"));main.appendChild(sl);
   var box=el("div","listings");var status=el("div","lstatus","Loading "+label+" listings…");box.appendChild(status);main.appendChild(box);
-  fetchListings(source,item).then(function(res){
+  fetchListings(source,item,extra).then(function(res){
     box.innerHTML="";
     if(!res){box.appendChild(el("div","lstatus","Listings proxy not configured."));return;}
     if(res.error){box.appendChild(el("div","lstatus","Couldn’t load "+label+" listings — "+res.error));return;}

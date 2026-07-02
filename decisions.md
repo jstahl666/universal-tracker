@@ -26,9 +26,25 @@
   scheduled feed — always current, no cron.
 
 - **eBay first, others incremental.** eBay Browse API returns clean structured listings
-  (title/price/image/link) via app-only OAuth — the one reliable source. Craigslist (RSS)
-  and Reddit audio markets come next as extra `source` branches. Facebook/OfferUp/Mercari/
-  Amazon have no usable API and stay as click-out buttons.
+  (title/price/image/link) via app-only OAuth — the one reliable source. Facebook/OfferUp/
+  Mercari/Amazon have no usable API and stay as click-out buttons.
+
+- **Craigslist inline = abandoned (2026-07-02).** Tested server-side fetch of Craigslist
+  search RSS (`&format=rss`): returns a `403` "Your request has been blocked" HTML page
+  even from a residential IP. Craigslist blocks programmatic access at the IP+behavior
+  level; a Worker's data-center IP is blocked harder. Reverted to click-out button only.
+
+- **Reddit inline = shipped, but flaky (2026-07-02).** Reddit's `.json` search API hard-403s
+  non-OAuth clients now, but the `.rss` (Atom) feed is still open — so the worker fetches
+  that and parses the XML. Works, but Reddit rate-limits (429) per IP, and a Worker shares
+  a data-center IP → intermittent 429s in production. Front-end already degrades to a
+  friendly note on error, so it's low-risk. Price is regex'd from the [WTS] post title
+  (null when the price lives only in the body). Kept because it costs little and the audio
+  used-gear markets (r/AVexchange, r/hardwareswap) are exactly where headphone deals live.
+
+- **Net: eBay is the only fully reliable inline source.** The "show listings inline"
+  feature is really an eBay feature; Reddit is a best-effort bonus, everything else is a
+  deep-link button. This matches what the marketplaces actually allow.
 
 - **Worker URL lives in `watchlist.json` config**, not hardcoded. If `config.listingsProxy`
   is unset the page silently falls back to buttons-only, so the site never depends on the
