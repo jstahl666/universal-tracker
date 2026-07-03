@@ -37,6 +37,23 @@ async function getContext() {
 
 const SOURCES = { craigslist };
 
+// Accessory/parts filter — mirrors the Worker's eBay filter so scraped sources
+// (Craigslist etc.) also drop headrests, ear pads, casters, springs, etc. and
+// return actual items only.
+const ACCESSORY_RX = new RegExp("\\b(" + [
+  "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",
+  "connectors?", "plugs?", "adapters?", "adaptors?", "headbands?", "foam",
+  "replacement", "spare", "grommets?", "mounts?", "stands?", "hangers?",
+  "hooks?", "holders?", "cases?", "pouch", "bag", "stickers?", "decals?",
+  "wraps?", "kits?", "transmitters?", "chargers?", "docks?", "receivers?",
+  "casters?", "wheels?", "cylinders?", "pistons?", "arm\\s?rests?", "armrests?",
+  "arm\\s?pads?", "armpads?", "glides?", "screws?", "bolts?", "washers?",
+  "parts?", "headrests?", "seat\\s?pans?", "seat\\s?backs?", "yokes?",
+  "assembl(?:y|ies)", "springs?", "spacers?", "knobs?", "torsion",
+  "mechanisms?", "controls?", "pieces?", "cubicles?", "panels?",
+  "back\\s?frames?", "backrests?", "slip\\s?covers?", "slipcovers?"
+].join("|") + ")\\b", "i");
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -84,6 +101,7 @@ const server = http.createServer(async (req, res) => {
     const lo = min ? Number(min) : null, hi = max ? Number(max) : null;
     const filtered = listings.filter((l) => {
       if (model && !(l.title || "").toLowerCase().includes(model)) return false;
+      if (ACCESSORY_RX.test(l.title || "")) return false;
       // Apply the numeric range here too (some sites ignore the URL params).
       if (l.price == null) return true;
       if (lo != null && l.price < lo) return false;
