@@ -85,7 +85,9 @@ const PART_STRONG = [
   "replacement", "spare", "for\\s+parts", "torsion", "gas\\s?lift",
   "sector\\s?gear", "grommets?", "tilt\\s?(?:kit|cam|knob|engine|handle)",
   "instructions?", "owners?\\s?manual", // docs, never a whole product
-  "repairs?", "repair\\s?lines?", // repair parts/cables, never a whole product
+  // repair KIT/LINE/CABLE/PART = a part; a bare "repair"/"repairs" is NOT (it
+  // appears on whole products, e.g. "No Repairs Needed") so don't drop on it.
+  "repair\\s?(?:kits?|lines?|cables?|cords?|parts?)",
 ];
 const PART_WEAK = [
   "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",
@@ -134,10 +136,14 @@ function isAccessory(title) {
   // the accessory (e.g. "Custom Headphone Cable - AKG K712"). A weak word AFTER
   // the model is just a whole product mentioning an accessory ("HD650 w/ case").
   if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
-  // "<weak> … for <brand>" only counts as an accessory when it LEADS the model —
-  // otherwise "HD 650 … case for travel" (product) would be wrongly dropped.
+  // "<weak> … for <brand>" counts as an accessory when it LEADS the model —
+  // otherwise "HD 650 … case for travel" (product) would be wrongly dropped. The
+  // "for <use-case>" negative lookahead already spares real products; the position
+  // guard additionally protects a trailing accessory on a product ("… casters for
+  // carpet"). modelIdx===0 (title STARTS with the model, e.g. "HE400SE Cable for
+  // Hifiman") makes the guard vacuous, so treat a match there as accessory too.
   const fm = WEAK_FOR_RX.exec(t);
-  if (fm && fm.index < modelIdx) return true;
+  if (fm && (fm.index < modelIdx || modelIdx === 0)) return true;
   return false;
 }
 

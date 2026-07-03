@@ -116,7 +116,7 @@ const PART_STRONG = [
   "replacement", "spare", "for\\s+parts", "torsion", "gas\\s?lift",
   "sector\\s?gear", "grommets?", "tilt\\s?(?:kit|cam|knob|engine|handle)",
   "instructions?", "owners?\\s?manual",
-  "repairs?", "repair\\s?lines?",
+  "repair\\s?(?:kits?|lines?|cables?|cords?|parts?)", // part, not a bare "repairs"
 ];
 const PART_WEAK = [
   "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",
@@ -152,9 +152,12 @@ function isAccessory(title) {
   const m = t.match(MODEL_NUM_RX);
   const modelIdx = m ? m.index : Infinity;
   if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
-  // "<weak> … for <brand>" only counts as accessory when it LEADS the model.
+  // "<weak> … for <brand>" counts as accessory when it LEADS the model, or when
+  // the title STARTS with the model (modelIdx===0 makes the position guard vacuous,
+  // e.g. "HE400SE Cable for Hifiman" — a model-led accessory on the no-category
+  // craigslist path). Kept identical to worker.js.
   const fm = WEAK_FOR_RX.exec(t);
-  if (fm && fm.index < modelIdx) return true;
+  if (fm && (fm.index < modelIdx || modelIdx === 0)) return true;
   return false;
 }
 
@@ -234,8 +237,17 @@ async function scrape(fn, params) {
     throw e;
   } finally {
     if (page) {
-      try { await withTimeout(page.close(), 5000, "close-timeout"); }
-      catch (e2) { if (/close-timeout/.test(String(e2 && e2.message))) healBrowser(); }
+      try {
+        await withTimeout(page.close(), 5000, "close-timeout");
+      } catch (e2) {
+        // A slow close is usually a page-LOCAL hang (pending route/navigation on
+        // this one page), not a wedged browser — the browser stays responsive to
+        // the up-to-MAX_CONCURRENCY sibling pages. Do NOT heal the shared browser
+        // (that would close it and 502 those healthy concurrent scrapes). The
+        // original page.close() keeps running detached; only relaunch if the
+        // browser has ACTUALLY disconnected.
+        if (browser && !browser.isConnected()) healBrowser();
+      }
     }
   }
 }
@@ -259,9 +271,18 @@ const server = http.createServer(async (req, res) => {
   // own-property check so prototype members ("constructor" etc.) can't slip past
   if (!Object.prototype.hasOwnProperty.call(SOURCES, source)) return send(res, 400, { error: "unknown source" }, cors);
 
+  // Observe client disconnect so a queued/aborted request doesn't spend a scarce
+  // browser slot + a full 35s scrape writing to a dead socket (head-of-line delay
+  // for still-connected users). requestTimeout only bounds request receipt, not
+  // the queue-wait or scrape.
+  let aborted = false;
+  req.on("aborted", () => { aborted = true; });
+  res.on("close", () => { aborted = true; });
+
   const got = await acquire();
   if (!got) return send(res, 503, { error: "busy — try again shortly" }, cors);
   try {
+    if (aborted) return; // client already gave up — release the slot, skip the browser
     const listings = await scrape(SOURCES[source], { q, region, min, max });
     const model = modelToken(q);
     const lo = min ? Number(min) : null, hi = max ? Number(max) : null;

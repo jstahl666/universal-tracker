@@ -371,6 +371,12 @@ function fmtPrice(v){return v==null?"—":"$"+v.toLocaleString(undefined,{maximu
 function statusOf(it){return it.status||"active";}
 function numOrNull(v){if(v==null||v==="")return null;var n=parseFloat(v);return isFinite(n)?n:null;}
 function queryOf(it){return (it.query&&it.query.trim())||it.name;}
+// Scheme allowlist for any href/src built from watchlist.json or a listings-proxy
+// response. Mirrors the numeric-coercion / text-node hardening applied to the
+// other data-controlled fields: a javascript:/data: URL from an attacker-
+// influenced watchlist.json (malicious PR/fork) or a rogue proxy can't reach a sink.
+function safeUrl(u){u=(u||"").trim();return /^https?:\/\//i.test(u)?u:"#";}
+function safeImg(u){u=(u||"").trim();return (/^https?:\/\//i.test(u)||/^data:image\//i.test(u))?u:"";}
 
 // filtering + grouping
 function matchesFilter(it){
@@ -544,7 +550,7 @@ function renderDetail(main,item){
   facts.appendChild(fact("Status",statusOf(item).charAt(0).toUpperCase()+statusOf(item).slice(1)));
   if(item.link){
     var f=el("div","fact");f.appendChild(el("div","k","Link"));
-    var v=el("div","v");var a=el("a",null,"Open ↗");a.href=item.link;a.target="_blank";a.rel="noopener";a.style.color="var(--accent)";
+    var v=el("div","v");var a=el("a",null,"Open ↗");a.href=safeUrl(item.link);a.target="_blank";a.rel="noopener";a.style.color="var(--accent)";
     v.appendChild(a);f.appendChild(v);facts.appendChild(f);
   }
   box.appendChild(facts);
@@ -631,8 +637,9 @@ function fetchListings(source,item,extra){
   return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
 }
 function listingCard(l){
-  var a=el("a","listing");a.href=l.url||"#";a.target="_blank";a.rel="noopener";
-  if(l.image){var img=document.createElement("img");img.src=l.image;img.alt="";img.loading="lazy";
+  var a=el("a","listing");a.href=safeUrl(l.url);a.target="_blank";a.rel="noopener";
+  var safeSrc=safeImg(l.image);
+  if(safeSrc){var img=document.createElement("img");img.src=safeSrc;img.alt="";img.loading="lazy";
     img.onerror=function(){this.style.visibility="hidden";};a.appendChild(img);}
   var info=el("div","info");info.appendChild(el("div","lt",l.title||"(no title)"));
   var m=el("div","lm");
