@@ -28,8 +28,8 @@ Sources implemented: `craigslist` (✅ working). Planned: `offerup`, `mercari`,
 cd scraper
 npm install
 npx playwright install chromium
-npm start           # listens on :8080 (PORT env to override)
-curl "http://localhost:8080/listings?source=craigslist&q=steelcase%20chair&region=sfbay&max=250"
+npm start           # listens on :8791 (PORT env to override)
+curl "http://localhost:8791/listings?source=craigslist&q=steelcase%20chair&region=sfbay&max=250"
 ```
 
 ## Deploy on the homeserver (always-on)
@@ -39,7 +39,7 @@ curl "http://localhost:8080/listings?source=craigslist&q=steelcase%20chair&regio
 2. Run it windowless/at-boot (Task Scheduler with `node server.js`, or `pm2`).
 3. Expose it publicly with **Cloudflare Tunnel**:
    ```bash
-   cloudflared tunnel --url http://localhost:8080
+   cloudflared tunnel --url http://localhost:8791
    ```
    (named tunnel for a stable hostname if a Cloudflare domain is available;
    otherwise a quick tunnel prints a temporary `*.trycloudflare.com` URL.)

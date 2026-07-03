@@ -17,7 +17,7 @@ import http from "http";
 import { chromium } from "playwright";
 import { craigslist } from "./sources/craigslist.js";
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8791;  // 8080 is taken by another homeserver service
 // A shared browser context, reused across requests for speed. A realistic UA +
 // viewport so the pages behave like a normal desktop Chrome.
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
