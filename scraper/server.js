@@ -116,6 +116,7 @@ const PART_STRONG = [
   "replacement", "spare", "for\\s+parts", "torsion", "gas\\s?lift",
   "sector\\s?gear", "grommets?", "tilt\\s?(?:kit|cam|knob|engine|handle)",
   "instructions?", "owners?\\s?manual",
+  "repairs?", "repair\\s?lines?",
 ];
 const PART_WEAK = [
   "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",

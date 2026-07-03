@@ -85,6 +85,7 @@ const PART_STRONG = [
   "replacement", "spare", "for\\s+parts", "torsion", "gas\\s?lift",
   "sector\\s?gear", "grommets?", "tilt\\s?(?:kit|cam|knob|engine|handle)",
   "instructions?", "owners?\\s?manual", // docs, never a whole product
+  "repairs?", "repair\\s?lines?", // repair parts/cables, never a whole product
 ];
 const PART_WEAK = [
   "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",
@@ -140,6 +141,33 @@ function isAccessory(title) {
   return false;
 }
 
+// ---- model-relevance gate (identical to the scraper) ----------------------
+// Accessories with NO model number that don't lead with the accessory word slip
+// past isAccessory (e.g. "NewFantasia … Balanced Headphone Cable" for a HiFiMan
+// query). A relevance gate — does the title actually name the queried model? —
+// drops off-topic parts that the category filter cross-lists in.
+const GENERIC_WORDS = new Set([
+  "office", "chair", "chairs", "desk", "desks", "seat", "seating", "stool",
+  "headphone", "headphones", "earphone", "earphones", "headset", "monitor",
+  "monitors", "speaker", "speakers", "ergonomic", "mesh", "task", "gaming",
+  "wireless", "used", "new", "the", "pair", "set",
+]);
+function modelToken(q) {
+  const words = (q || "").toLowerCase().split(/[\s-]+/).map(function (w) { return w.replace(/[^a-z0-9]/g, ""); }).filter(Boolean);
+  const digits = words.filter(function (w) { return /\d/.test(w) && w.length >= 2; });
+  if (digits.length) return digits[digits.length - 1];
+  for (let i = words.length - 1; i >= 0; i--)
+    if (words[i].length >= 3 && !GENERIC_WORDS.has(words[i])) return words[i];
+  return "";
+}
+function matchesModel(title, model) {
+  if (!model) return true;
+  const nt = (title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const xx = model.match(/^(\d)xx$/);
+  if (xx) return new RegExp(xx[1] + "(?:xx|\\d\\d)").test(nt);
+  return nt.includes(model);
+}
+
 async function ebaySearch(env, q, min, max, now, cat) {
   const token = await ebayToken(env, now);
   const filters = ["priceCurrency:USD"];
@@ -170,8 +198,10 @@ async function ebaySearch(env, q, min, max, now, cat) {
   });
   if (!r.ok) throw new Error("eBay search HTTP " + r.status + ": " + (await r.text()).slice(0, 300));
   const j = await r.json();
+  const model = modelToken(q);
   return (j.itemSummaries || []).filter(function (it) {
-    return !isAccessory(it.title || "");
+    const title = it.title || "";
+    return matchesModel(title, model) && !isAccessory(title);
   }).slice(0, 12).map(function (it) {
     const img = (it.image && it.image.imageUrl) ||
       (it.thumbnailImages && it.thumbnailImages[0] && it.thumbnailImages[0].imageUrl) || "";
@@ -220,6 +250,7 @@ async function redditSearch(sub, q, min, max) {
   const xml = await r.text();
   const entries = xml.match(/<entry>[\s\S]*?<\/entry>/gi) || [];
   const lo = min ? Number(min) : null, hi = max ? Number(max) : null;
+  const model = modelToken(q);
   return entries.map(function (block) {
     const title = textOf(block, "title");
     let link = attrOf(block, "link", "href");
@@ -235,6 +266,7 @@ async function redditSearch(sub, q, min, max) {
     };
   }).filter(function (l) {
     if (!l.title) return false;
+    if (!matchesModel(l.title, model)) return false; // drop off-topic posts/parts
     if (isAccessory(l.title)) return false; // parity with the eBay/scraper paths
     if (l.price == null) return true; // keep unpriced (WTB / body-priced) posts
     if (lo != null && l.price < lo) return false;
@@ -376,9 +408,12 @@ export default {
       return resp;
     } catch (e) {
       // Log the full error server-side; return a generic message to the client
-      // so upstream provider bodies / internal details aren't echoed out.
+      // so upstream provider bodies / internal details aren't echoed out. Only the
+      // friendly "rate-limited" message (Reddit, line ~248) passes through — do NOT
+      // match on the bare "429" digits, which also appear in eBay's
+      // "eBay search HTTP 429: <verbatim body>" and would leak that body.
       console.error("worker error [" + source + "]:", (e && e.stack) || e);
-      const msg = /rate-limited|429/i.test(String(e && e.message)) ? String(e.message) : "upstream error";
+      const msg = /rate-limited/i.test(String(e && e.message)) ? String(e.message) : "upstream error";
       return json({ source: source, error: msg }, 502);
     }
   },
