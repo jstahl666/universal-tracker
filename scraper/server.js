@@ -26,7 +26,7 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
 const MAX_CONCURRENCY = 3;      // simultaneous browser pages (DoS guard)
 const MAX_QUEUE = 12;           // pending requests beyond that → 503
 const SCRAPE_DEADLINE_MS = 35000;
-const RL_WINDOW_MS = 60 * 1000, RL_CAP = 30; // per-IP requests/minute
+const RL_WINDOW_MS = 60 * 1000, RL_CAP = 60; // global requests/minute (see note below)
 
 // ---- self-healing browser -------------------------------------------------
 // ctxPromise memoizes the in-flight launch so concurrent cold callers share ONE
@@ -44,9 +44,6 @@ function getContext() {
   })().catch((err) => { ctxPromise = null; throw err; });
   return ctxPromise;
 }
-function isDeadBrowserError(e) {
-  return /Target.*closed|browser has been closed|Target page, context or browser/i.test(String(e && e.message));
-}
 
 // ---- concurrency limiter --------------------------------------------------
 let active = 0;
@@ -61,14 +58,17 @@ function release() {
   if (next) next(true); else active--;
 }
 
-// ---- per-IP rate limit ----------------------------------------------------
-const RL = new Map();
-function rateLimited(ip, now) {
-  if (!ip) return false;
-  let arr = (RL.get(ip) || []).filter((t) => now - t < RL_WINDOW_MS);
-  if (arr.length >= RL_CAP) { RL.set(ip, arr); return true; }
-  arr.push(now); RL.set(ip, arr);
-  if (RL.size > 5000) RL.clear();
+// ---- global rate limit ----------------------------------------------------
+// Behind Tailscale Funnel the true client IP isn't available (cf-connecting-ip
+// is client-settable here and req.socket is the funnel/loopback address), so
+// per-IP limiting is both spoofable and self-defeating. The concurrency cap is
+// the real resource guard; this global bucket just sheds obvious floods cheaply
+// (429) before they ever reach the browser.
+const GRL = [];
+function globallyRateLimited(now) {
+  while (GRL.length && now - GRL[0] >= RL_WINDOW_MS) GRL.shift();
+  if (GRL.length >= RL_CAP) return true;
+  GRL.push(now);
   return false;
 }
 
@@ -100,8 +100,9 @@ const WEAK_ANY_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b", "i");
 const WEAK_LEAD_RX = new RegExp(
   "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
   PART_WEAK.join("|") + ")\\b", "i");
-const WEAK_FOR_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,15}\\bfor\\b", "i");
-const MODEL_NUM_RX = /\b[a-z]*\d[a-z0-9]*\b/i;
+const WEAK_FOR_RX = new RegExp(
+  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me)\\b)", "i");
+const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
 function isAccessory(title) {
   const t = title || "";
   if (STRONG_RX.test(t)) return true;
@@ -116,7 +117,9 @@ function isAccessory(title) {
 // the last meaningful word. Normalizing away spaces/hyphens lets "HE-400SE",
 // "HE 400 SE" and "HE400SE" all match. Fixes generic 'pro' and formatting drops.
 function modelToken(q) {
-  const words = q.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z0-9]/g, "")).filter(Boolean);
+  // split on spaces AND hyphens so "ath-r70x" yields "r70x", not a fused
+  // "athr70x" that wouldn't match an "R70x"-only title.
+  const words = q.toLowerCase().split(/[\s-]+/).map((w) => w.replace(/[^a-z0-9]/g, "")).filter(Boolean);
   const digits = words.filter((w) => /\d/.test(w) && w.length >= 2);
   if (digits.length) return digits[digits.length - 1];
   for (let i = words.length - 1; i >= 0; i--) if (words[i].length >= 3) return words[i];
@@ -124,7 +127,12 @@ function modelToken(q) {
 }
 function matchesModel(title, model) {
   if (!model) return true;
-  return (title || "").toLowerCase().replace(/[^a-z0-9]/g, "").includes(model);
+  const nt = (title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // "6xx"-style placeholder is a wildcard: match the literal ("hd6xx") OR the
+  // real numbered variants it stands in for ("hd650"/"hd600"/"hd660").
+  const xx = model.match(/^(\d)xx$/);
+  if (xx) return new RegExp(xx[1] + "(?:xx|\\d\\d)").test(nt);
+  return nt.includes(model);
 }
 
 // ---- HTTP -----------------------------------------------------------------
@@ -146,9 +154,14 @@ function send(res, status, obj, cors) {
   res.end(JSON.stringify(obj));
 }
 
+// The deadline lives INSIDE scrape so the page is always torn down before the
+// promise settles. That keeps the concurrency slot (released by the caller's
+// finally) tied to a real open page — a timed-out scrape can't leak a page that
+// outlives its slot and push live pages past MAX_CONCURRENCY.
 async function scrape(fn, params) {
   const ctx = await getContext();
   const page = await ctx.newPage();
+  let timer;
   try {
     await page.route("**/*", (route) => {
       const t = route.request().resourceType();
@@ -156,8 +169,12 @@ async function scrape(fn, params) {
       if (t === "font" || t === "media") return route.abort();
       return route.continue();
     });
-    return await fn(page, params);
+    return await Promise.race([
+      fn(page, params),
+      new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("scrape timeout")), SCRAPE_DEADLINE_MS); }),
+    ]);
   } finally {
+    clearTimeout(timer);
     await page.close().catch(() => {});
   }
 }
@@ -169,9 +186,8 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === "/health") return send(res, 200, { ok: true, browser: !!(browser && browser.isConnected()) }, cors);
   if (u.pathname !== "/listings") return send(res, 404, { error: "not found" }, cors);
 
-  const ip = (req.headers["cf-connecting-ip"] || req.socket.remoteAddress || "").toString();
   const now = Date.now();
-  if (rateLimited(ip, now)) return send(res, 429, { error: "rate limited — slow down" }, cors);
+  if (globallyRateLimited(now)) return send(res, 429, { error: "busy — try again shortly" }, cors);
 
   const source = (u.searchParams.get("source") || "").toLowerCase();
   const q = (u.searchParams.get("q") || "").trim();
@@ -184,12 +200,8 @@ const server = http.createServer(async (req, res) => {
 
   const got = await acquire();
   if (!got) return send(res, 503, { error: "busy — try again shortly" }, cors);
-  let timer;
   try {
-    const listings = await Promise.race([
-      scrape(SOURCES[source], { q, region, min, max }),
-      new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("scrape timeout")), SCRAPE_DEADLINE_MS); }),
-    ]);
+    const listings = await scrape(SOURCES[source], { q, region, min, max });
     const model = modelToken(q);
     const lo = min ? Number(min) : null, hi = max ? Number(max) : null;
     const filtered = listings.filter((l) => {
@@ -202,12 +214,13 @@ const server = http.createServer(async (req, res) => {
     }).slice(0, 20);
     send(res, 200, { source, listings: filtered }, cors);
   } catch (e) {
-    // Log full error server-side; return a generic message to the client.
+    // Log full error server-side; return a generic message to the client. A dead
+    // browser is healed by the 'disconnected' handler (which nulls browser +
+    // ctxPromise), so we deliberately do NOT close/reset here — doing so could
+    // tear down a browser a concurrent request just relaunched.
     console.error("scrape error [" + source + "]:", (e && e.stack) || e);
-    if (isDeadBrowserError(e)) { try { if (browser) await browser.close(); } catch (_) {} browser = null; ctxPromise = null; }
     send(res, 502, { source, error: "scrape failed" }, cors);
   } finally {
-    clearTimeout(timer);
     release();
   }
 });

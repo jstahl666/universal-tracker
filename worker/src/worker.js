@@ -105,10 +105,14 @@ const WEAK_ANY_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b", "i");
 const WEAK_LEAD_RX = new RegExp(
   "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
   PART_WEAK.join("|") + ")\\b", "i");
-// "<weak word> … for" — e.g. "Ear Pads for Sennheiser", "Cover For HD650"
-const WEAK_FOR_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,15}\\bfor\\b", "i");
-// first model-number token (a word containing a digit, e.g. HD650, K712, V2, 900)
-const MODEL_NUM_RX = /\b[a-z]*\d[a-z0-9]*\b/i;
+// "<weak word> … for <brand/model>" — e.g. "Ear Pads for Sennheiser". The
+// negative lookahead avoids the false positive "<product> … for sale/trade/…"
+// which is a whole product being sold, not an accessory FOR something.
+const WEAK_FOR_RX = new RegExp(
+  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me)\\b)", "i");
+// first MODEL token — 3+ digits (650, 1990) or a letter+digit blend (HD650,
+// K712, V2). Excludes bare spec numbers like the "8" in "8 Core … Cable".
+const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
 
 // A title is an accessory when the accessory noun leads the product name rather
 // than trailing it. Products read "<Brand> <Model> … <accessory>"; accessories
@@ -230,10 +234,9 @@ async function redditSearch(sub, q, min, max) {
 
 // ---- best-effort per-IP rate limit (in-isolate) ---------------------------
 // Cloudflare isolates are per-colo and ephemeral, so this bounds bursts rather
-// than being a hard global cap — enough to blunt an accidental frontend loop or
-// casual abuse without standing up KV/Durable-Object infrastructure.
+// than being a hard global cap. Backed up by the KV daily budget below.
 const RL = new Map();
-const RL_WINDOW_MS = 5 * 60 * 1000, RL_CAP = 80;
+const RL_WINDOW_MS = 5 * 60 * 1000, RL_CAP = 30;
 function rateLimited(ip, now) {
   if (!ip) return false;
   let arr = (RL.get(ip) || []).filter(function (t) { return now - t < RL_WINDOW_MS; });
@@ -242,6 +245,23 @@ function rateLimited(ip, now) {
   RL.set(ip, arr);
   if (RL.size > 5000) RL.clear();
   return false;
+}
+
+// ---- global daily eBay-call budget (KV) -----------------------------------
+// A hard-ish global cap on eBay Browse calls/day, well under the 5000 quota, so
+// no accidental loop or abuser can drain it and break listings for the day. We
+// stop incrementing once capped, so total KV writes stay under the free limit.
+// (KV is eventually consistent, so a fast burst can overshoot slightly — fine
+// against the realistic threats; a strict cap would need a paid Durable Object.)
+const EBAY_DAILY_BUDGET = 800;
+function dayKey(now) { return "ebay:" + new Date(now).toISOString().slice(0, 10); }
+async function ebayBudgetOk(env, now) {
+  if (!env || !env.EBAY_BUDGET) return true; // no KV bound (e.g. local dev) → allow
+  const key = dayKey(now);
+  const cur = Number(await env.EBAY_BUDGET.get(key)) || 0;
+  if (cur >= EBAY_DAILY_BUDGET) return false;
+  await env.EBAY_BUDGET.put(key, String(cur + 1), { expirationTtl: 172800 });
+  return true;
 }
 
 export default {
@@ -285,9 +305,18 @@ export default {
     ck.searchParams.sort();
     const cacheKey = new Request(ck.toString(), { method: "GET" });
     const hit = await cache.match(cacheKey);
-    if (hit) return hit;
+    if (hit) {
+      // Re-apply CORS for THIS caller's origin — the cached copy baked in the
+      // first caller's origin, which may differ from an allowed origin now.
+      const h = new Headers(hit.headers);
+      Object.keys(CORS).forEach(function (k) { h.set(k, CORS[k]); });
+      return new Response(hit.body, { status: hit.status, headers: h });
+    }
 
     try {
+      if (source === "ebay" && !(await ebayBudgetOk(env, now))) {
+        return json({ source: source, error: "daily eBay limit reached — try later" }, 429);
+      }
       const listings = source === "ebay"
         ? await ebaySearch(env, q, min, max, now, cat)
         : await redditSearch(sub, q, min, max);

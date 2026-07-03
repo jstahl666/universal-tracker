@@ -5,3 +5,8 @@ compatibility_date = "2026-07-01"
 # Secrets (do NOT put keys here — set them with wrangler):
 #   wrangler secret put EBAY_CLIENT_ID
 #   wrangler secret put EBAY_CLIENT_SECRET
+
+# Global daily eBay-call budget counter (protects the shared 5000/day quota).
+[[kv_namespaces]]
+binding = "EBAY_BUDGET"
+id = "21bc553d47ee49a5b4f4f5e0acf7c03a"
