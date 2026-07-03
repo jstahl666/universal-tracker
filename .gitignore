@@ -5,3 +5,5 @@ __pycache__/
 Thumbs.db
 .wrangler/
 node_modules/
+ebay_creds.txt
+*.secret

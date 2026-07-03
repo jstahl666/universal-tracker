@@ -1,7 +1,8 @@
 {
   "updated": "2026-07-01",
   "config": {
-    "craigslistRegion": "sfbay"
+    "craigslistRegion": "sfbay",
+    "listingsProxy": "https://universal-tracker-listings.jstahl666.workers.dev"
   },
   "items": [
     {
