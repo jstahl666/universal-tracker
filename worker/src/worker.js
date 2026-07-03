@@ -79,7 +79,8 @@ const ACCESSORY_RX = new RegExp("\\b(" + [
   "spacers?", "knobs?", "handles?", "torsion", "instructions?", "manuals?",
   "gas\\s?lift", "sector\\s?gear", "tilt\\s?(?:kit|cam|knob|engine|handle)",
   "arm\\s?pads?", "armpads?", "slip\\s?covers?", "slipcovers?",
-  "back\\s?frames?", "frames?", "backrests?", "back\\s?rests?", "seat\\s?backs?"
+  "back\\s?frames?", "frames?", "backrests?", "back\\s?rests?", "seat\\s?backs?",
+  "mechanisms?", "controls?", "pieces?", "cubicles?", "panels?"
 ].join("|") + ")\\b", "i");
 
 async function ebaySearch(env, q, min, max, now, cat, debug) {
