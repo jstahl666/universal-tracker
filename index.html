@@ -406,9 +406,12 @@ function normalize(it){
   return {
     id:it.id||slug(it.name),name:it.name||"Untitled",
     category:it.category||"Uncategorized",query:it.query||"",link:it.link||"",
-    priceMin:(it.priceMin!=null?it.priceMin:null),
+    // Coerce to Number (not just null-check): a non-numeric price from an
+    // attacker-influenced watchlist.json would otherwise flow as a string through
+    // fmtPrice (toLocaleString is a no-op on strings) into innerHTML → stored XSS.
+    priceMin:numOrNull(it.priceMin),
     // back-compat: an old single "target" becomes the max
-    priceMax:(it.priceMax!=null?it.priceMax:(it.target!=null?it.target:null)),
+    priceMax:(it.priceMax!=null?numOrNull(it.priceMax):numOrNull(it.target)),
     status:it.status||"active",notes:it.notes||""
   };
 }
@@ -520,7 +523,7 @@ function tile(it){
   var t=el("button","tile");t.onclick=function(){state.selected=it.id;render();};
   var top=el("div","top");top.appendChild(el("div","name",it.name));t.appendChild(top);
   var chips=el("div","chips");chips.appendChild(statusChip(it));t.appendChild(chips);
-  if(hasRange(it)){var l=el("div","line");l.innerHTML="Price <b>"+fmtRange(it)+"</b>";t.appendChild(l);}
+  if(hasRange(it)){var l=el("div","line");l.appendChild(document.createTextNode("Price "));l.appendChild(el("b",null,fmtRange(it)));t.appendChild(l);}
   if(it.notes){t.appendChild(el("div","line",it.notes.length>70?it.notes.slice(0,70)+"…":it.notes));}
   return t;
 }

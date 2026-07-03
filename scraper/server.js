@@ -35,21 +35,34 @@ const RL_WINDOW_MS = 60 * 1000, RL_CAP = 60; // global requests/minute (see note
 let browser = null, ctxPromise = null;
 function getContext() {
   if (ctxPromise) return ctxPromise;
-  ctxPromise = (async () => {
+  // Capture our own promise identity: a withTimeout(getContext()) that gives up
+  // and calls healBrowser() nulls ctxPromise while chromium.launch() (which the
+  // race can't cancel) keeps running. Without this guard the abandoned launch
+  // would complete and set `browser = b`, but no request ever uses it and no
+  // future getContext() reuses it (ctxPromise is null) → a leaked ~300MB Chromium
+  // that stays connected (so 'disconnected' never fires) and can't be healed.
+  const mine = (async () => {
     const b = await chromium.launch({ headless: true, args: ["--disable-blink-features=AutomationControlled"] });
     b.on("disconnected", () => { if (browser === b) { browser = null; ctxPromise = null; } });
     try {
+      if (ctxPromise !== mine) { await b.close().catch(() => {}); throw new Error("superseded"); }
       const c = await b.newContext({ userAgent: UA, viewport: { width: 1366, height: 900 }, locale: "en-US" });
+      // Re-check: we may have been abandoned during newContext() too.
+      if (ctxPromise !== mine) { await b.close().catch(() => {}); throw new Error("superseded"); }
       browser = b;
       return c;
     } catch (e) {
-      // launch() already spawned a Chromium process; if newContext() fails we'd
-      // otherwise drop the only reference to it (browser is still null) → orphan.
+      // launch() already spawned a Chromium process; on ANY failure here close it
+      // so we never drop the only reference to a live browser (browser is still null).
       await b.close().catch(() => {});
       throw e;
     }
-  })().catch((err) => { ctxPromise = null; throw err; });
-  return ctxPromise;
+  })();
+  ctxPromise = mine;
+  // Clear the slot on failure, but only if it's still ours (a heal may have
+  // already replaced it with a newer launch we must not clobber).
+  mine.catch(() => { if (ctxPromise === mine) ctxPromise = null; });
+  return mine;
 }
 
 // A wedged-but-still-connected browser (GC/swap stall short of an OOM kill) never
@@ -122,29 +135,50 @@ const WEAK_ANY_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b", "i");
 const WEAK_LEAD_RX = new RegExp(
   "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
   PART_WEAK.join("|") + ")\\b", "i");
+// Kept IDENTICAL to worker.js isAccessory — the two must not drift (a whole
+// product kept on the eBay path but dropped here silently hides real listings).
 const WEAK_FOR_RX = new RegExp(
-  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me)\\b)", "i");
+  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:" +
+  "sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me|" +
+  "travel|gaming|home|office|work|desk|gym|studio|mixing|monitoring|recording|dj|kids?|adults?|" +
+  "men|women|tall|short|comfort|use|everyday|daily|running|sports?|protection|storage|gifts?|the|my|your" +
+  ")\\b)", "i");
 const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
 function isAccessory(title) {
   const t = title || "";
   if (STRONG_RX.test(t)) return true;
   if (WEAK_LEAD_RX.test(t)) return true;
-  if (WEAK_FOR_RX.test(t)) return true;
   const m = t.match(MODEL_NUM_RX);
+  const modelIdx = m ? m.index : Infinity;
   if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
+  // "<weak> … for <brand>" only counts as accessory when it LEADS the model.
+  const fm = WEAK_FOR_RX.exec(t);
+  if (fm && fm.index < modelIdx) return true;
   return false;
 }
 
 // Distinctive model token: prefer a digit-bearing token (model numbers), else
 // the last meaningful word. Normalizing away spaces/hyphens lets "HE-400SE",
 // "HE 400 SE" and "HE400SE" all match. Fixes generic 'pro' and formatting drops.
+// Generic category filler that must NOT be chosen as the distinctive token:
+// "steelcase office chair" should gate on "steelcase", not "chair" (which would
+// drop every real "Steelcase Leap V2" whose title omits the word "chair").
+const GENERIC_WORDS = new Set([
+  "office", "chair", "chairs", "desk", "desks", "seat", "seating", "stool",
+  "headphone", "headphones", "earphone", "earphones", "headset", "monitor",
+  "monitors", "speaker", "speakers", "ergonomic", "mesh", "task", "gaming",
+  "wireless", "used", "new", "the", "pair", "set",
+]);
 function modelToken(q) {
   // split on spaces AND hyphens so "ath-r70x" yields "r70x", not a fused
   // "athr70x" that wouldn't match an "R70x"-only title.
   const words = q.toLowerCase().split(/[\s-]+/).map((w) => w.replace(/[^a-z0-9]/g, "")).filter(Boolean);
   const digits = words.filter((w) => /\d/.test(w) && w.length >= 2);
   if (digits.length) return digits[digits.length - 1];
-  for (let i = words.length - 1; i >= 0; i--) if (words[i].length >= 3) return words[i];
+  // No model number → prefer the last DISTINCTIVE (non-generic) word, e.g. a
+  // brand. Fall back to no gate ("") rather than gating on a category noun.
+  for (let i = words.length - 1; i >= 0; i--)
+    if (words[i].length >= 3 && !GENERIC_WORDS.has(words[i])) return words[i];
   return "";
 }
 function matchesModel(title, model) {

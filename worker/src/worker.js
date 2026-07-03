@@ -260,20 +260,30 @@ function rateLimited(ip, now) {
 
 // ---- global daily eBay-call budget (KV) -----------------------------------
 // A hard-ish global cap on eBay Browse calls/day, well under the 5000 quota, so
-// no accidental loop or abuser can drain it and break listings for the day. We
-// stop incrementing once capped, so total KV writes stay under the free limit.
-// (KV is eventually consistent, so a fast burst can overshoot slightly — fine
-// against the realistic threats; a strict cap would need a paid Durable Object.)
-const EBAY_DAILY_BUDGET = 800;
+// no accidental loop or abuser can drain it and break listings for the day.
+// Each passing call writes TWO KV keys (per-IP + global), so the daily WRITE
+// count is the binding constraint on the free tier (~1000 writes/day): the budget
+// is sized so 2×budget stays under that. Once capped we do a READ-ONLY check and
+// perform ZERO further writes, so post-cap abuse can't exhaust the write quota.
+// (KV is eventually consistent, so a fast burst can overshoot slightly — fine.)
+const EBAY_DAILY_BUDGET = 450; // 2 writes/call × 450 = 900 < ~1000 free KV writes/day
 const EBAY_IP_DAILY = 100; // reserve the shared budget: no single IP drains it all
 function dayKey(now) { return "ebay:" + new Date(now).toISOString().slice(0, 10); }
-async function ebayBudgetOk(env, now) {
-  if (!env || !env.EBAY_BUDGET) return true; // no KV bound (e.g. local dev) → allow
-  const key = dayKey(now);
-  const cur = Number(await env.EBAY_BUDGET.get(key)) || 0;
-  if (cur >= EBAY_DAILY_BUDGET) return false;
-  await env.EBAY_BUDGET.put(key, String(cur + 1), { expirationTtl: 172800 });
-  return true;
+// Read-only: is the global budget already spent? (no write → safe to gate first)
+async function ebayBudgetSpent(env, now) {
+  if (!env || !env.EBAY_BUDGET) return false;
+  try { return (Number(await env.EBAY_BUDGET.get(dayKey(now))) || 0) >= EBAY_DAILY_BUDGET; }
+  catch (e) { return false; } // KV read hiccup → allow (5000 eBay quota is the backstop)
+}
+// Best-effort increment of the global counter. Errors are swallowed — a KV write
+// failure must NOT 502 the dashboard (the prior version's unguarded put did).
+async function ebayBudgetInc(env, now) {
+  if (!env || !env.EBAY_BUDGET) return;
+  try {
+    const key = dayKey(now);
+    const cur = Number(await env.EBAY_BUDGET.get(key)) || 0;
+    await env.EBAY_BUDGET.put(key, String(cur + 1), { expirationTtl: 172800 });
+  } catch (e) { /* free-tier write cap or transient error → degrade, don't crash */ }
 }
 // Per-IP daily sub-cap so one abuser can't drain the whole 800 (and blank the
 // dashboard) by spamming distinct queries: ~8 abusers now needed instead of 1.
@@ -349,11 +359,14 @@ export default {
 
     try {
       if (source === "ebay") {
-        // per-IP first: a drained IP is rejected without touching the global budget
+        // Global cap FIRST as a read-only check — once spent we write nothing more,
+        // so post-cap traffic can't burn the free-tier KV write quota.
+        if (await ebayBudgetSpent(env, now))
+          return json({ source: source, error: "daily eBay limit reached — try later" }, 429);
+        // per-IP sub-cap: a drained IP is rejected before we increment the global.
         if (!(await ebayIpOk(env, ip, now)))
           return json({ source: source, error: "per-IP daily eBay limit reached — try later" }, 429);
-        if (!(await ebayBudgetOk(env, now)))
-          return json({ source: source, error: "daily eBay limit reached — try later" }, 429);
+        await ebayBudgetInc(env, now); // best-effort; KV errors won't 502 the page
       }
       const listings = source === "ebay"
         ? await ebaySearch(env, q, min, max, now, cat)
