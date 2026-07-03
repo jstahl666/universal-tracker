@@ -295,7 +295,10 @@ var MARKETS = [
   {name:"Facebook", color:"#1877f2", all:true, url:function(q,mn,mx){
     return "https://www.facebook.com/marketplace/search/?query="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
   {name:"Craigslist", color:"#5b2d8e", all:true, live:"craigslist", url:function(q,mn,mx){
-    var r=(state.config.craigslistRegion||"sfbay").trim()||"sfbay";
+    // region sits in the URL HOST, so confine it to a slug charset — an unescaped
+    // "/" or "@" from an attacker-influenced watchlist.json would re-point the host
+    // (open-redirect). Mirrors the safeUrl posture applied to link/url/image.
+    var r=clRegion();
     return "https://"+r+".craigslist.org/search/sss?query="+q+(mn?"&min_price="+mn:"")+(mx?"&max_price="+mx:"");}},
   {name:"OfferUp", color:"#15b468", all:true, url:function(q,mn,mx){
     return "https://offerup.com/search?q="+q+(mn?"&price_min="+mn:"")+(mx?"&price_max="+mx:"");}},
@@ -377,6 +380,8 @@ function queryOf(it){return (it.query&&it.query.trim())||it.name;}
 // influenced watchlist.json (malicious PR/fork) or a rogue proxy can't reach a sink.
 function safeUrl(u){u=(u||"").trim();return /^https?:\/\//i.test(u)?u:"#";}
 function safeImg(u){u=(u||"").trim();return (/^https?:\/\//i.test(u)||/^data:image\//i.test(u))?u:"";}
+// craigslist region → strict slug (it lands in a URL host); bad value falls back.
+function clRegion(){var r=(state.config.craigslistRegion||"sfbay").trim();return /^[a-z0-9-]+$/i.test(r)?r:"sfbay";}
 
 // filtering + grouping
 function matchesFilter(it){
@@ -632,7 +637,7 @@ function fetchListings(source,item,extra){
   var url=base+path+"?source="+encodeURIComponent(source)+"&q="+encodeURIComponent(queryOf(item))+
     (mn!==""?"&min="+mn:"")+(mx!==""?"&max="+mx:"");
   if(source==="ebay"){var ec=ebayCatFor(item);if(ec)url+="&cat="+encodeURIComponent(ec);}
-  if(source==="craigslist"){var r=(state.config.craigslistRegion||"sfbay").trim()||"sfbay";url+="&region="+encodeURIComponent(r);}
+  if(source==="craigslist"){url+="&region="+encodeURIComponent(clRegion());}
   if(extra)for(var k in extra)url+="&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]);
   return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
 }
