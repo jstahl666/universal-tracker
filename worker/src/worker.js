@@ -108,17 +108,25 @@ const WEAK_ANY_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b", "i");
 const WEAK_LEAD_RX = new RegExp(
   "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
   PART_WEAK.join("|") + ")\\b", "i");
-// "<weak word> … for <brand/model>" — e.g. "Ear Pads for Sennheiser". The
-// negative lookahead avoids false positives where "for" introduces a use-case or
-// sale phrase on a WHOLE product ("HD650 with case for travel", "chair for sale"),
-// not an accessory FOR something. Only accessory-led matches survive (see the
-// position guard in isAccessory: this must fire BEFORE the first model token).
+// "<weak word> … for <BRAND or MODEL>" — e.g. "Ear Pads for Sennheiser HD650",
+// "Cable for HE4XX". The accessory signal is what FOLLOWS "for": a brand name or a
+// model-number token means the item is an accessory FOR that product. A use-case
+// or spec after "for" ("cable for amp", "casters for carpet", "case for travel",
+// "chair for sale") is a WHOLE product describing itself, so it must NOT match.
+// Matching on the positive "for <brand/model>" target (rather than a position
+// guard + a hand-maintained use-case denylist) correctly spares both word-named
+// products ("Aeron … casters for carpet") and model-led products ("HD650 … cable
+// for amp") without needing to know the model's position in the title.
+const BRAND_WORDS = [
+  "sennheiser", "hifi\\s?man", "herman\\s?miller", "herman", "miller", "steelcase",
+  "akg", "beyerdynamic", "beyer", "audeze", "focal", "grado", "fostex", "denon",
+  "meze", "koss", "sony", "bose", "philips", "drop", "massdrop", "dan\\s?clark",
+  "audio\\s?technica", "sivga", "moondrop", "hifiman", "haworth", "humanscale", "knoll",
+];
+// after "for": a known brand, OR a model-number token (HD650, K712, HE4XX)
+const FOR_TARGET = "(?:" + BRAND_WORDS.join("|") + "|[a-z]+\\d[a-z0-9]*|\\d{3,})";
 const WEAK_FOR_RX = new RegExp(
-  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:" +
-  "sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me|" +
-  "travel|gaming|home|office|work|desk|gym|studio|mixing|monitoring|recording|dj|kids?|adults?|" +
-  "men|women|tall|short|comfort|use|everyday|daily|running|sports?|protection|storage|gifts?|the|my|your" +
-  ")\\b)", "i");
+  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b\\s+" + FOR_TARGET + "\\b", "i");
 // first MODEL token — 3+ digits (650, 1990) or a letter+digit blend (HD650,
 // K712, V2). Excludes bare spec numbers like the "8" in "8 Core … Cable".
 const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
@@ -131,19 +139,14 @@ function isAccessory(title) {
   if (STRONG_RX.test(t)) return true;
   if (WEAK_LEAD_RX.test(t)) return true;
   const m = t.match(MODEL_NUM_RX);
-  const modelIdx = m ? m.index : Infinity;
   // weak accessory word appearing BEFORE the first model-number token → led by
   // the accessory (e.g. "Custom Headphone Cable - AKG K712"). A weak word AFTER
   // the model is just a whole product mentioning an accessory ("HD650 w/ case").
   if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
-  // "<weak> … for <brand>" counts as an accessory when it LEADS the model —
-  // otherwise "HD 650 … case for travel" (product) would be wrongly dropped. The
-  // "for <use-case>" negative lookahead already spares real products; the position
-  // guard additionally protects a trailing accessory on a product ("… casters for
-  // carpet"). modelIdx===0 (title STARTS with the model, e.g. "HE400SE Cable for
-  // Hifiman") makes the guard vacuous, so treat a match there as accessory too.
-  const fm = WEAK_FOR_RX.exec(t);
-  if (fm && (fm.index < modelIdx || modelIdx === 0)) return true;
+  // "<weak> … for <brand/model>" is self-sufficient now (the target after "for"
+  // must be a brand or model token), so no position guard is needed: it fires only
+  // on genuine "accessory FOR a product" titles regardless of where the model sits.
+  if (WEAK_FOR_RX.test(t)) return true;
   return false;
 }
 

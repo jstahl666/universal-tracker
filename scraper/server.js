@@ -138,26 +138,27 @@ const WEAK_LEAD_RX = new RegExp(
   PART_WEAK.join("|") + ")\\b", "i");
 // Kept IDENTICAL to worker.js isAccessory — the two must not drift (a whole
 // product kept on the eBay path but dropped here silently hides real listings).
+// "<weak> … for <BRAND or MODEL>" is the accessory signal; a use-case/spec after
+// "for" ("cable for amp", "casters for carpet") is a whole product and must NOT
+// match. Matching the positive brand/model target (not a position guard) spares
+// word-named products (Aeron/Sundara) and model-led products alike.
+const BRAND_WORDS = [
+  "sennheiser", "hifi\\s?man", "herman\\s?miller", "herman", "miller", "steelcase",
+  "akg", "beyerdynamic", "beyer", "audeze", "focal", "grado", "fostex", "denon",
+  "meze", "koss", "sony", "bose", "philips", "drop", "massdrop", "dan\\s?clark",
+  "audio\\s?technica", "sivga", "moondrop", "hifiman", "haworth", "humanscale", "knoll",
+];
+const FOR_TARGET = "(?:" + BRAND_WORDS.join("|") + "|[a-z]+\\d[a-z0-9]*|\\d{3,})";
 const WEAK_FOR_RX = new RegExp(
-  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:" +
-  "sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me|" +
-  "travel|gaming|home|office|work|desk|gym|studio|mixing|monitoring|recording|dj|kids?|adults?|" +
-  "men|women|tall|short|comfort|use|everyday|daily|running|sports?|protection|storage|gifts?|the|my|your" +
-  ")\\b)", "i");
+  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b\\s+" + FOR_TARGET + "\\b", "i");
 const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
 function isAccessory(title) {
   const t = title || "";
   if (STRONG_RX.test(t)) return true;
   if (WEAK_LEAD_RX.test(t)) return true;
   const m = t.match(MODEL_NUM_RX);
-  const modelIdx = m ? m.index : Infinity;
   if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
-  // "<weak> … for <brand>" counts as accessory when it LEADS the model, or when
-  // the title STARTS with the model (modelIdx===0 makes the position guard vacuous,
-  // e.g. "HE400SE Cable for Hifiman" — a model-led accessory on the no-category
-  // craigslist path). Kept identical to worker.js.
-  const fm = WEAK_FOR_RX.exec(t);
-  if (fm && (fm.index < modelIdx || modelIdx === 0)) return true;
+  if (WEAK_FOR_RX.test(t)) return true;
   return false;
 }
 
@@ -225,15 +226,18 @@ async function scrape(fn, params) {
   try {
     const ctx = await withTimeout(getContext(), 15000, "context-timeout");
     page = await withTimeout(ctx.newPage(), 10000, "newpage-timeout");
-    await page.route("**/*", (route) => {
+    // page.route() is NOT a no-op: the first registration does a CDP round-trip to
+    // enable request interception, which hangs forever on a wedged-but-connected
+    // browser. Time-bound it like the other awaits so it can't leak the slot.
+    await withTimeout(page.route("**/*", (route) => {
       const t = route.request().resourceType();
       // keep images (we extract thumbnail URLs from the DOM); drop the heavy rest
       if (t === "font" || t === "media") return route.abort();
       return route.continue();
-    });
+    }), 10000, "route-timeout");
     return await withTimeout(fn(page, params), SCRAPE_DEADLINE_MS, "scrape-timeout");
   } catch (e) {
-    if (/context-timeout|newpage-timeout/.test(String(e && e.message))) healBrowser();
+    if (/context-timeout|newpage-timeout|route-timeout/.test(String(e && e.message))) healBrowser();
     throw e;
   } finally {
     if (page) {
