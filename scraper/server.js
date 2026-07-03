@@ -74,9 +74,17 @@ const server = http.createServer(async (req, res) => {
       return route.continue();
     });
     const listings = await fn(page, { q, region, min, max });
-    // Apply the numeric price range here too (some sites ignore the URL params).
+    // Relevance: these sites do loose keyword matching and return unrelated
+    // items (e.g. a "Ball Clock" for an "aeron" search). Keep only titles that
+    // contain at least one meaningful query word (>= 4 chars).
+    const terms = q.toLowerCase().split(/\s+/).filter((w) => w.replace(/[^a-z0-9]/g, "").length >= 4);
     const lo = min ? Number(min) : null, hi = max ? Number(max) : null;
     const filtered = listings.filter((l) => {
+      if (terms.length) {
+        const t = (l.title || "").toLowerCase();
+        if (!terms.some((w) => t.includes(w))) return false;
+      }
+      // Apply the numeric range here too (some sites ignore the URL params).
       if (l.price == null) return true;
       if (lo != null && l.price < lo) return false;
       if (hi != null && l.price > hi) return false;
