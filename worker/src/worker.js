@@ -5,11 +5,11 @@
 // and returns clean normalized JSON the page can render as cards.
 //
 // Sources:
-//   ebay        — eBay Browse API (needs credentials; app-only OAuth)
-//   craigslist  — Craigslist search RSS feed (no auth); needs &region=<subdomain>
-//   reddit      — Reddit search JSON (no auth); needs &sub=<subreddit>
+//   ebay    — eBay Browse API (needs credentials; app-only OAuth)
+//   reddit  — Reddit search RSS feed (no auth); needs &sub=<subreddit>
+//   (Craigslist/OfferUp/etc. are handled by the separate homeserver scraper.)
 //
-// Endpoint:  GET /?source=<src>&q=<query>&min=<usd>&max=<usd>[&region=][&sub=]
+// Endpoint:  GET /?source=<src>&q=<query>&min=<usd>&max=<usd>[&sub=][&cat=]
 // Response:  { source, listings:[ {title,price,currency,url,image,condition,location} ] }
 //            or { source, error }
 //
@@ -17,35 +17,52 @@
 //   EBAY_CLIENT_ID      — eBay App ID  (Client ID, Production keyset)
 //   EBAY_CLIENT_SECRET  — eBay Cert ID (Client Secret, Production keyset)
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+// CORS is locked to the site origin so other websites can't drive-by the
+// endpoint from visitors' browsers. (Doesn't stop server-side/curl callers —
+// the Cache API + per-IP rate limit below bound that.)
+const ALLOWED_ORIGINS = [
+  "https://jstahl666.github.io",
+  "http://localhost:8781", "http://localhost:8779", "http://localhost:8080",
+];
+function corsHeaders(origin) {
+  const allow = ALLOWED_ORIGINS.indexOf(origin) >= 0 ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Vary": "Origin",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
 
-// eBay OAuth app token (client-credentials grant). Cached in-isolate until it
-// nears expiry so we don't mint one per request.
+// ---- eBay OAuth app token (client-credentials) ----------------------------
+// Cached in-isolate until it nears expiry. tokenPromise coalesces concurrent
+// cold callers onto ONE token fetch (avoids a thundering herd of OAuth calls).
 let tokenCache = { token: null, exp: 0 };
+let tokenPromise = null;
 
 async function ebayToken(env, now) {
   if (tokenCache.token && now < tokenCache.exp) return tokenCache.token;
+  if (tokenPromise) return tokenPromise;
   if (!env.EBAY_CLIENT_ID || !env.EBAY_CLIENT_SECRET) {
     throw new Error("eBay credentials not set (EBAY_CLIENT_ID / EBAY_CLIENT_SECRET)");
   }
-  const basic = btoa(env.EBAY_CLIENT_ID + ":" + env.EBAY_CLIENT_SECRET);
-  const r = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-    method: "POST",
-    headers: {
-      "Authorization": "Basic " + basic,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials&scope=" +
-      encodeURIComponent("https://api.ebay.com/oauth/api_scope"),
-  });
-  if (!r.ok) throw new Error("eBay token HTTP " + r.status + ": " + (await r.text()).slice(0, 300));
-  const j = await r.json();
-  tokenCache = { token: j.access_token, exp: now + (j.expires_in - 60) * 1000 };
-  return tokenCache.token;
+  tokenPromise = (async () => {
+    const basic = btoa(env.EBAY_CLIENT_ID + ":" + env.EBAY_CLIENT_SECRET);
+    const r = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Authorization": "Basic " + basic,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials&scope=" +
+        encodeURIComponent("https://api.ebay.com/oauth/api_scope"),
+    });
+    if (!r.ok) throw new Error("eBay token HTTP " + r.status + ": " + (await r.text()).slice(0, 300));
+    const j = await r.json();
+    tokenCache = { token: j.access_token, exp: now + (j.expires_in - 60) * 1000 };
+    return tokenCache.token;
+  })().finally(() => { tokenPromise = null; });
+  return tokenPromise;
 }
 
 function priceFilter(min, max) {
@@ -57,55 +74,77 @@ function priceFilter(min, max) {
   return "";
 }
 
-// Accessory/parts noise filter. Sellers list ear pads, cables, headbands,
-// casters, etc. INSIDE the real product category and — sorted by price — those
-// cheap accessories bury the actual items. Drop any title that reads as an
-// accessory/part rather than the product itself. Word-boundary matched so e.g.
-// "cushion" doesn't nuke a chair whose model name legitimately contains a word.
-// NOTE: deliberately excludes "mesh" (all-mesh chairs) to avoid false drops.
-const ACCESSORY_RX = new RegExp("\\b(" + [
-  // headphone accessories/parts
-  "ear\\s?pads?", "pads?", "cushions?", "ear\\s?cushions?", "covers?",
-  "cables?", "cords?", "connectors?", "plugs?", "adapters?", "adaptors?",
-  "headbands?", "foam", "cushioning", "replacement", "spare",
-  "decorative\\s?ring", "rings?", "grommets?", "mounts?", "stands?",
-  "hangers?", "hooks?", "holders?", "cases?", "pouch", "bag",
-  "stickers?", "decals?", "skins?", "wraps?", "kits?",
-  "transmitters?", "chargers?", "docks?", "receivers?",
-  // chair accessories/parts
-  "casters?", "wheels?", "cylinders?", "pistons?", "arm\\s?rests?", "armrests?",
-  "glides?", "screws?", "bolts?", "washers?", "parts?",
-  "headrests?", "seat\\s?pans?", "yokes?", "assembl(?:y|ies)", "springs?",
-  "spacers?", "knobs?", "handles?", "torsion", "instructions?", "manuals?",
-  "gas\\s?lift", "sector\\s?gear", "tilt\\s?(?:kit|cam|knob|engine|handle)",
-  "arm\\s?pads?", "armpads?", "slip\\s?covers?", "slipcovers?",
-  "back\\s?frames?", "frames?", "backrests?", "back\\s?rests?", "seat\\s?backs?",
-  "mechanisms?", "controls?", "pieces?", "cubicles?", "panels?"
-].join("|") + ")\\b", "i");
+// ---- accessory / parts filter (shared shape with the scraper) -------------
+// Almost every part word (pads, case, headrest, casters…) ALSO appears in real
+// full-product listings ("HD600 with new pads", "Leap with headrest"), so a
+// blanket "contains the word" drop nukes real inventory. Two tiers instead:
+//   STRONG  — words that essentially never appear on a whole product → drop anywhere
+//   WEAK    — ambiguous nouns → drop only when the title is accessory-LED
+//             (starts with the word) or uses an "<word> … for" construction.
+const PART_STRONG = [
+  "replacement", "spare", "for\\s+parts", "torsion", "gas\\s?lift",
+  "sector\\s?gear", "grommets?", "tilt\\s?(?:kit|cam|knob|engine|handle)",
+  "instructions?", "owners?\\s?manual", // docs, never a whole product
+];
+const PART_WEAK = [
+  "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",
+  "connectors?", "plugs?", "adapters?", "adaptors?", "headbands?", "foam",
+  "decorative\\s?rings?", "rings?", "mounts?", "stands?", "hangers?", "hooks?",
+  "holders?", "cases?", "pouch", "bags?", "skins?", "wraps?", "kits?",
+  "transmitters?", "chargers?", "docks?", "receivers?", "casters?", "wheels?",
+  "cylinders?", "pistons?", "glides?", "screws?", "bolts?", "washers?", "parts?",
+  "springs?", "knobs?", "handles?", "manuals?", "frames?",
+  "backrests?", "back\\s?rests?", "back\\s?frames?", "mechanisms?", "controls?",
+  "pieces?", "panels?", "cubicles?", "headrests?", "seat\\s?pans?",
+  "seat\\s?backs?", "seats?", "yokes?", "spacers?", "arm\\s?rests?", "armrests?",
+  "arm\\s?pads?", "armpads?", "slip\\s?covers?", "slipcovers?", "stickers?", "decals?",
+];
+const STRONG_RX = new RegExp("\\b(?:" + PART_STRONG.join("|") + ")\\b", "i");
+const WEAK_ANY_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b", "i");
+// accessory-led: optional count/qualifier, then a weak word near the start
+const WEAK_LEAD_RX = new RegExp(
+  "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
+  PART_WEAK.join("|") + ")\\b", "i");
+// "<weak word> … for" — e.g. "Ear Pads for Sennheiser", "Cover For HD650"
+const WEAK_FOR_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,15}\\bfor\\b", "i");
+// first model-number token (a word containing a digit, e.g. HD650, K712, V2, 900)
+const MODEL_NUM_RX = /\b[a-z]*\d[a-z0-9]*\b/i;
 
-async function ebaySearch(env, q, min, max, now, cat, debug) {
+// A title is an accessory when the accessory noun leads the product name rather
+// than trailing it. Products read "<Brand> <Model> … <accessory>"; accessories
+// read "<accessory> … for <Brand> <Model>" or "<accessory> - <Brand> <Model>".
+function isAccessory(title) {
+  const t = title || "";
+  if (STRONG_RX.test(t)) return true;
+  if (WEAK_LEAD_RX.test(t)) return true;
+  if (WEAK_FOR_RX.test(t)) return true;
+  // weak accessory word appearing BEFORE the first model-number token → led by
+  // the accessory (e.g. "Custom Headphone Cable - AKG K712")
+  const m = t.match(MODEL_NUM_RX);
+  if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
+  return false;
+}
+
+async function ebaySearch(env, q, min, max, now, cat) {
   const token = await ebayToken(env, now);
   const filters = ["priceCurrency:USD"];
-  // Implicit price floor: replacement parts/accessories are always a small
-  // fraction of the product's price. When a max is set but no explicit min,
-  // floor the search at 15% of max so $2 springs / $10 ear pads never bury the
-  // real listings — while any realistic deal stays well above the floor.
-  const FLOOR_FRAC = 0.15;
+  // Small ABSOLUTE floor (not a % of max): drop trivially-cheap parts without
+  // amputating the legitimate low price band for expensive items.
+  const FLOOR = 15;
   const maxN = Number((max || "").trim());
   let effMin = (min || "").trim();
-  if (!effMin && maxN > 0) effMin = String(Math.round(maxN * FLOOR_FRAC));
+  if (!effMin && maxN > FLOOR) effMin = String(FLOOR);
   const pf = priceFilter(effMin, max);
   if (pf) filters.push(pf);
   // Restrict to a leaf category (e.g. Headphones) so accessories/parts that
-  // live in OTHER categories drop out. Sellers still cross-list some accessories
-  // INTO the product category, so ACCESSORY_RX below catches the rest.
+  // live in OTHER categories drop out. ACCESSORY filter catches cross-listed ones.
   cat = (cat || "").trim().replace(/[^0-9]/g, "");
-  // Fetch a wide pool (50) so that after filtering accessories out we still have
-  // a healthy set of real listings to show.
+  // Best Match (default relevance) — NOT sort=price. Price-ascending buries real
+  // products under the cheapest accessories so the post-filter pool was starved.
+  // Fetch a wide pool, drop accessories, keep 12. The frontend sorts by price.
   const url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
     + "?q=" + encodeURIComponent(q)
     + "&limit=50"
-    + "&sort=price"
     + (cat ? "&category_ids=" + cat : "")
     + "&filter=" + encodeURIComponent(filters.join(","));
   const r = await fetch(url, {
@@ -117,11 +156,11 @@ async function ebaySearch(env, q, min, max, now, cat, debug) {
   if (!r.ok) throw new Error("eBay search HTTP " + r.status + ": " + (await r.text()).slice(0, 300));
   const j = await r.json();
   return (j.itemSummaries || []).filter(function (it) {
-    return !ACCESSORY_RX.test(it.title || "");
+    return !isAccessory(it.title || "");
   }).slice(0, 12).map(function (it) {
     const img = (it.image && it.image.imageUrl) ||
       (it.thumbnailImages && it.thumbnailImages[0] && it.thumbnailImages[0].imageUrl) || "";
-    const out = {
+    return {
       title: it.title || "",
       price: it.price ? Number(it.price.value) : null,
       currency: (it.price && it.price.currency) || "USD",
@@ -130,18 +169,8 @@ async function ebaySearch(env, q, min, max, now, cat, debug) {
       condition: it.condition || "",
       location: (it.itemLocation && (it.itemLocation.city || it.itemLocation.stateOrProvince || it.itemLocation.country)) || "",
     };
-    // debug=1 → surface the item's categories so we can discover the right
-    // category_ids to hardcode in the frontend, then this flag is dropped.
-    if (debug) out._cats = (it.categories || []).map(function (c) { return c.categoryId + ":" + c.categoryName; });
-    return out;
   });
 }
-
-// Craigslist NOTE: there is deliberately no Craigslist source here. Craigslist
-// hard-blocks programmatic fetches of its search/RSS at the IP+behavior level
-// (returns an HTML "Your request has been blocked" page, 403) even from a
-// residential IP — and a Worker's data-center IP is blocked more reliably still.
-// So Craigslist stays a click-out button in the UI (see MARKETS in index.html).
 
 // ---- shared XML/price helpers ---------------------------------------------
 function textOf(block, tag) {
@@ -157,12 +186,6 @@ function parsePrice(s) {
   return m ? Number(m[1].replace(/,/g, "")) : null;
 }
 // ---- Reddit (search RSS/Atom feed — no auth) ------------------------------
-// Buy/sell subreddits (r/AVexchange, r/hardwareswap) post [WTS]/[WTB] threads;
-// price lives in the title text, not a structured field, so we regex it out.
-// Reddit's .json API hard-403s non-OAuth clients, but the .rss (Atom) feed is
-// still open — so we use that and parse the XML. Reddit rate-limits (429) per
-// IP aggressively, and a Worker shares a data-center IP with other traffic, so
-// expect intermittent 429s in production; the page degrades to a friendly note.
 function attrOf(block, tag, attr) {
   const m = block.match(new RegExp("<" + tag + "\\b[^>]*\\b" + attr + '="([^"]*)"', "i"));
   return m ? m[1] : "";
@@ -197,6 +220,7 @@ async function redditSearch(sub, q, min, max) {
     };
   }).filter(function (l) {
     if (!l.title) return false;
+    if (isAccessory(l.title)) return false; // parity with the eBay/scraper paths
     if (l.price == null) return true; // keep unpriced (WTB / body-priced) posts
     if (lo != null && l.price < lo) return false;
     if (hi != null && l.price > hi) return false;
@@ -204,9 +228,28 @@ async function redditSearch(sub, q, min, max) {
   }).slice(0, 12);
 }
 
+// ---- best-effort per-IP rate limit (in-isolate) ---------------------------
+// Cloudflare isolates are per-colo and ephemeral, so this bounds bursts rather
+// than being a hard global cap — enough to blunt an accidental frontend loop or
+// casual abuse without standing up KV/Durable-Object infrastructure.
+const RL = new Map();
+const RL_WINDOW_MS = 5 * 60 * 1000, RL_CAP = 80;
+function rateLimited(ip, now) {
+  if (!ip) return false;
+  let arr = (RL.get(ip) || []).filter(function (t) { return now - t < RL_WINDOW_MS; });
+  if (arr.length >= RL_CAP) { RL.set(ip, arr); return true; }
+  arr.push(now);
+  RL.set(ip, arr);
+  if (RL.size > 5000) RL.clear();
+  return false;
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    const origin = request.headers.get("Origin") || "";
+    const CORS = corsHeaders(origin);
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+
     const now = Date.now();
     const u = new URL(request.url);
     const q = (u.searchParams.get("q") || "").trim();
@@ -215,23 +258,48 @@ export default {
     const max = u.searchParams.get("max") || "";
     const sub = u.searchParams.get("sub") || "";
     const cat = u.searchParams.get("cat") || "";
-    const debug = u.searchParams.get("debug") === "1";
+
+    // status>=400 responses are marked no-store so a transient upstream failure
+    // (Reddit 429, eBay hiccup) isn't cached and replayed for 5 minutes.
     const json = function (obj, status) {
+      const ok = !status || status < 400;
       return new Response(JSON.stringify(obj), {
         status: status || 200,
         headers: Object.assign({}, CORS, {
           "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=300",
+          "Cache-Control": ok ? "public, max-age=300" : "no-store",
         }),
       });
     };
+
+    const ip = request.headers.get("cf-connecting-ip") || "";
+    if (rateLimited(ip, now)) return json({ error: "rate limited — slow down" }, 429);
     if (!q) return json({ error: "missing q" }, 400);
+    if (source !== "ebay" && source !== "reddit") return json({ source: source, error: "unknown source" }, 400);
+
+    // Cache successful responses at the edge, keyed on the normalized query, so
+    // repeat/identical loads cost 0 eBay Browse calls (protects the daily quota).
+    const cache = caches.default;
+    const ck = new URL(request.url);
+    ["cb", "debug"].forEach(function (p) { ck.searchParams.delete(p); });
+    ck.searchParams.sort();
+    const cacheKey = new Request(ck.toString(), { method: "GET" });
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+
     try {
-      if (source === "ebay") return json({ source: source, listings: await ebaySearch(env, q, min, max, now, cat, debug) });
-      if (source === "reddit") return json({ source: source, listings: await redditSearch(sub, q, min, max) });
-      return json({ source: source, error: "unknown source: " + source }, 400);
+      const listings = source === "ebay"
+        ? await ebaySearch(env, q, min, max, now, cat)
+        : await redditSearch(sub, q, min, max);
+      const resp = json({ source: source, listings: listings });
+      if (ctx && ctx.waitUntil) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+      return resp;
     } catch (e) {
-      return json({ source: source, error: String((e && e.message) || e) }, 502);
+      // Log the full error server-side; return a generic message to the client
+      // so upstream provider bodies / internal details aren't echoed out.
+      console.error("worker error [" + source + "]:", (e && e.stack) || e);
+      const msg = /rate-limited|429/i.test(String(e && e.message)) ? String(e.message) : "upstream error";
+      return json({ source: source, error: msg }, 502);
     }
   },
 };

@@ -7,3 +7,4 @@ Thumbs.db
 node_modules/
 ebay_creds.txt
 *.secret
+*.log
