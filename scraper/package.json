@@ -1,0 +1,15 @@
+{
+  "name": "universal-tracker-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless-browser listings scraper for Universal Tracker. Runs on the homeserver (residential IP) so it can reach marketplaces that block datacenter IPs / non-browser clients (Craigslist, OfferUp, Mercari, Facebook). Exposed publicly via Cloudflare Tunnel; the tracker calls it as a live source alongside the eBay/Reddit Worker.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "install-browser": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}

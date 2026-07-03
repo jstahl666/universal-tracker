@@ -294,7 +294,7 @@ var MARKETS = [
     return "https://www.ebay.com/sch/i.html?_nkw="+q+(mn?"&_udlo="+mn:"")+(mx?"&_udhi="+mx:"");}},
   {name:"Facebook", color:"#1877f2", all:true, url:function(q,mn,mx){
     return "https://www.facebook.com/marketplace/search/?query="+q+(mn?"&minPrice="+mn:"")+(mx?"&maxPrice="+mx:"");}},
-  {name:"Craigslist", color:"#5b2d8e", all:true, url:function(q,mn,mx){
+  {name:"Craigslist", color:"#5b2d8e", all:true, live:"craigslist", url:function(q,mn,mx){
     var r=(state.config.craigslistRegion||"sfbay").trim()||"sfbay";
     return "https://"+r+".craigslist.org/search/sss?query="+q+(mn?"&min_price="+mn:"")+(mx?"&max_price="+mx:"");}},
   {name:"OfferUp", color:"#15b468", all:true, url:function(q,mn,mx){
@@ -550,7 +550,7 @@ function renderDetail(main,item){
   main.appendChild(marketRow(item));
 
   // live listings — for each source that supports a server-side preview
-  if(proxyBase()){
+  if(proxyBase()||scraperBase()){
     var liveSources=sourcesFor(item).filter(function(m){return m.live;});
     if(liveSources.length){
       var sortRow=el("div","seclabel");
@@ -592,15 +592,25 @@ function marketRow(item){
 }
 function fact(k,v){var f=el("div","fact");f.appendChild(el("div","k",k));f.appendChild(el("div","v",v));return f;}
 
-// ---- live listings (via the Cloudflare Worker proxy) ----------------------
+// ---- live listings --------------------------------------------------------
+// Two backends: the Cloudflare Worker (eBay/Reddit — sites with an API/open
+// feed) and the homeserver scraper (Craigslist/OfferUp/Mercari/Facebook —
+// sites that block datacenter IPs, so a real browser on a residential IP
+// fetches them). Each source routes to the right backend automatically.
 function proxyBase(){return (state.config.listingsProxy||"").trim().replace(/\/+$/,"");}
+function scraperBase(){return (state.config.scraperProxy||"").trim().replace(/\/+$/,"");}
+var SCRAPER_SOURCES={craigslist:1,offerup:1,mercari:1,facebook:1};
 function fetchListings(source,item,extra){
-  var base=proxyBase();if(!base)return Promise.resolve(null);
+  var scrape=SCRAPER_SOURCES[source];
+  var base=scrape?scraperBase():proxyBase();
+  if(!base)return Promise.resolve(null);
+  var path=scrape?"/listings":"";
   var mn=item.priceMin!=null?Math.round(item.priceMin):"";
   var mx=item.priceMax!=null?Math.round(item.priceMax):"";
-  var url=base+"?source="+encodeURIComponent(source)+"&q="+encodeURIComponent(queryOf(item))+
+  var url=base+path+"?source="+encodeURIComponent(source)+"&q="+encodeURIComponent(queryOf(item))+
     (mn!==""?"&min="+mn:"")+(mx!==""?"&max="+mx:"");
   if(source==="ebay"){var ec=ebayCatFor(item);if(ec)url+="&cat="+encodeURIComponent(ec);}
+  if(source==="craigslist"){var r=(state.config.craigslistRegion||"sfbay").trim()||"sfbay";url+="&region="+encodeURIComponent(r);}
   if(extra)for(var k in extra)url+="&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]);
   return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
 }
