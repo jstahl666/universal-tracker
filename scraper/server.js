@@ -38,11 +38,33 @@ function getContext() {
   ctxPromise = (async () => {
     const b = await chromium.launch({ headless: true, args: ["--disable-blink-features=AutomationControlled"] });
     b.on("disconnected", () => { if (browser === b) { browser = null; ctxPromise = null; } });
-    const c = await b.newContext({ userAgent: UA, viewport: { width: 1366, height: 900 }, locale: "en-US" });
-    browser = b;
-    return c;
+    try {
+      const c = await b.newContext({ userAgent: UA, viewport: { width: 1366, height: 900 }, locale: "en-US" });
+      browser = b;
+      return c;
+    } catch (e) {
+      // launch() already spawned a Chromium process; if newContext() fails we'd
+      // otherwise drop the only reference to it (browser is still null) → orphan.
+      await b.close().catch(() => {});
+      throw e;
+    }
   })().catch((err) => { ctxPromise = null; throw err; });
   return ctxPromise;
+}
+
+// A wedged-but-still-connected browser (GC/swap stall short of an OOM kill) never
+// emits 'disconnected', so the self-heal above never fires and every subsequent
+// getContext() hands back the same dead context. Force a relaunch by dropping the
+// reference and closing it in the background.
+function healBrowser() {
+  const b = browser;
+  browser = null; ctxPromise = null;
+  if (b) b.close().catch(() => {});
+}
+function withTimeout(p, ms, label) {
+  let timer;
+  const t = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(label)), ms); });
+  return Promise.race([p, t]).finally(() => clearTimeout(timer));
 }
 
 // ---- concurrency limiter --------------------------------------------------
@@ -154,28 +176,32 @@ function send(res, status, obj, cors) {
   res.end(JSON.stringify(obj));
 }
 
-// The deadline lives INSIDE scrape so the page is always torn down before the
-// promise settles. That keeps the concurrency slot (released by the caller's
-// finally) tied to a real open page — a timed-out scrape can't leak a page that
-// outlives its slot and push live pages past MAX_CONCURRENCY.
+// Every await here is time-bounded so the caller's concurrency slot (released in
+// its finally, only AFTER scrape settles) can never leak. getContext()/newPage()
+// and page.close() all send CDP commands that hang forever on a wedged browser;
+// without caps a single stall would pin a slot permanently (3 stalls → all 503).
+// Browser-level timeouts force a relaunch; a plain scrape-timeout is usually just
+// a slow page, so it does NOT nuke a browser other requests may be sharing.
 async function scrape(fn, params) {
-  const ctx = await getContext();
-  const page = await ctx.newPage();
-  let timer;
+  let page;
   try {
+    const ctx = await withTimeout(getContext(), 15000, "context-timeout");
+    page = await withTimeout(ctx.newPage(), 10000, "newpage-timeout");
     await page.route("**/*", (route) => {
       const t = route.request().resourceType();
       // keep images (we extract thumbnail URLs from the DOM); drop the heavy rest
       if (t === "font" || t === "media") return route.abort();
       return route.continue();
     });
-    return await Promise.race([
-      fn(page, params),
-      new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("scrape timeout")), SCRAPE_DEADLINE_MS); }),
-    ]);
+    return await withTimeout(fn(page, params), SCRAPE_DEADLINE_MS, "scrape-timeout");
+  } catch (e) {
+    if (/context-timeout|newpage-timeout/.test(String(e && e.message))) healBrowser();
+    throw e;
   } finally {
-    clearTimeout(timer);
-    await page.close().catch(() => {});
+    if (page) {
+      try { await withTimeout(page.close(), 5000, "close-timeout"); }
+      catch (e2) { if (/close-timeout/.test(String(e2 && e2.message))) healBrowser(); }
+    }
   }
 }
 

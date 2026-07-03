@@ -438,7 +438,12 @@ function loadWatchlist(){
 function statusChip(it){var s=statusOf(it);return el("span","chip st-"+s,s.charAt(0).toUpperCase()+s.slice(1));}
 function render(){
   var n=state.items.length;
-  $("#sub").innerHTML="<b>"+n+"</b> item"+(n===1?"":"s")+" tracked"+(state.updatedText?" · "+state.updatedText:"");
+  // Build via text nodes, not innerHTML: state.updatedText carries watchlist.json's
+  // `updated` field verbatim, so an innerHTML sink here is a stored-XSS primitive
+  // if that file is ever attacker-influenced (malicious PR / fork).
+  var sub=$("#sub");sub.textContent="";
+  sub.appendChild(el("b",null,String(n)));
+  sub.appendChild(document.createTextNode(" item"+(n===1?"":"s")+" tracked"+(state.updatedText?" · "+state.updatedText:"")));
   $("#banner").hidden=!state.dirty;
   if($("#clRegion").value!==(state.config.craigslistRegion||""))$("#clRegion").value=state.config.craigslistRegion||"";
   if(document.activeElement!==$("#q")&&$("#q").value!==state.filter.q)$("#q").value=state.filter.q;
@@ -577,6 +582,14 @@ function renderDetail(main,item){
     });
   }
 }
+// WCAG relative luminance → pick black or white glyph for ≥4.5:1 on the tile.
+// Flat #fff failed on light brand colors (Amazon #ff9900 ~2.1:1, OfferUp, Mercari…).
+function _lin(c){c/=255;return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4);}
+function icoText(bg){
+  var m=/^#?([0-9a-f]{6})$/i.exec(bg||"");if(!m)return "#fff";var h=m[1];
+  var L=0.2126*_lin(parseInt(h.slice(0,2),16))+0.7152*_lin(parseInt(h.slice(2,4),16))+0.0722*_lin(parseInt(h.slice(4,6),16));
+  return ((L+0.05)/0.05) >= (1.05/(L+0.05)) ? "#000" : "#fff"; // whichever contrasts more
+}
 function marketRow(item){
   var q=encodeURIComponent(queryOf(item));
   var mn=item.priceMin!=null?Math.round(item.priceMin):0;
@@ -584,7 +597,7 @@ function marketRow(item){
   var wrap=el("div","markets");
   sourcesFor(item).forEach(function(m){
     var a=el("a","market");a.href=m.url(q,mn,mx);a.target="_blank";a.rel="noopener";
-    var ico=el("span","ico",m.name[0]);ico.style.background=m.color;a.appendChild(ico);
+    var ico=el("span","ico",m.name[0]);ico.style.background=m.color;ico.style.color=icoText(m.color);a.appendChild(ico);
     a.appendChild(el("span",null,m.name));
     wrap.appendChild(a);
   });

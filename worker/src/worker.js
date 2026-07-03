@@ -106,10 +106,16 @@ const WEAK_LEAD_RX = new RegExp(
   "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
   PART_WEAK.join("|") + ")\\b", "i");
 // "<weak word> … for <brand/model>" — e.g. "Ear Pads for Sennheiser". The
-// negative lookahead avoids the false positive "<product> … for sale/trade/…"
-// which is a whole product being sold, not an accessory FOR something.
+// negative lookahead avoids false positives where "for" introduces a use-case or
+// sale phrase on a WHOLE product ("HD650 with case for travel", "chair for sale"),
+// not an accessory FOR something. Only accessory-led matches survive (see the
+// position guard in isAccessory: this must fire BEFORE the first model token).
 const WEAK_FOR_RX = new RegExp(
-  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me)\\b)", "i");
+  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b(?!\\s+(?:" +
+  "sale|trade|parts|pickup|pick\\s?up|ship|shipping|delivery|local|details|free|cheap|repair|you|me|" +
+  "travel|gaming|home|office|work|desk|gym|studio|mixing|monitoring|recording|dj|kids?|adults?|" +
+  "men|women|tall|short|comfort|use|everyday|daily|running|sports?|protection|storage|gifts?|the|my|your" +
+  ")\\b)", "i");
 // first MODEL token — 3+ digits (650, 1990) or a letter+digit blend (HD650,
 // K712, V2). Excludes bare spec numbers like the "8" in "8 Core … Cable".
 const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
@@ -121,11 +127,16 @@ function isAccessory(title) {
   const t = title || "";
   if (STRONG_RX.test(t)) return true;
   if (WEAK_LEAD_RX.test(t)) return true;
-  if (WEAK_FOR_RX.test(t)) return true;
-  // weak accessory word appearing BEFORE the first model-number token → led by
-  // the accessory (e.g. "Custom Headphone Cable - AKG K712")
   const m = t.match(MODEL_NUM_RX);
+  const modelIdx = m ? m.index : Infinity;
+  // weak accessory word appearing BEFORE the first model-number token → led by
+  // the accessory (e.g. "Custom Headphone Cable - AKG K712"). A weak word AFTER
+  // the model is just a whole product mentioning an accessory ("HD650 w/ case").
   if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
+  // "<weak> … for <brand>" only counts as an accessory when it LEADS the model —
+  // otherwise "HD 650 … case for travel" (product) would be wrongly dropped.
+  const fm = WEAK_FOR_RX.exec(t);
+  if (fm && fm.index < modelIdx) return true;
   return false;
 }
 
@@ -254,6 +265,7 @@ function rateLimited(ip, now) {
 // (KV is eventually consistent, so a fast burst can overshoot slightly — fine
 // against the realistic threats; a strict cap would need a paid Durable Object.)
 const EBAY_DAILY_BUDGET = 800;
+const EBAY_IP_DAILY = 100; // reserve the shared budget: no single IP drains it all
 function dayKey(now) { return "ebay:" + new Date(now).toISOString().slice(0, 10); }
 async function ebayBudgetOk(env, now) {
   if (!env || !env.EBAY_BUDGET) return true; // no KV bound (e.g. local dev) → allow
@@ -261,6 +273,20 @@ async function ebayBudgetOk(env, now) {
   const cur = Number(await env.EBAY_BUDGET.get(key)) || 0;
   if (cur >= EBAY_DAILY_BUDGET) return false;
   await env.EBAY_BUDGET.put(key, String(cur + 1), { expirationTtl: 172800 });
+  return true;
+}
+// Per-IP daily sub-cap so one abuser can't drain the whole 800 (and blank the
+// dashboard) by spamming distinct queries: ~8 abusers now needed instead of 1.
+// Checked BEFORE the global counter so a capped IP never consumes a global unit.
+// KV write errors fail-open — the global budget is still the backstop.
+async function ebayIpOk(env, ip, now) {
+  if (!env || !env.EBAY_BUDGET || !ip) return true;
+  const key = "ebayip:" + new Date(now).toISOString().slice(0, 10) + ":" + ip;
+  try {
+    const cur = Number(await env.EBAY_BUDGET.get(key)) || 0;
+    if (cur >= EBAY_IP_DAILY) return false;
+    await env.EBAY_BUDGET.put(key, String(cur + 1), { expirationTtl: 172800 });
+  } catch (e) { return true; }
   return true;
 }
 
@@ -297,11 +323,19 @@ export default {
     if (!q) return json({ error: "missing q" }, 400);
     if (source !== "ebay" && source !== "reddit") return json({ source: source, error: "unknown source" }, 400);
 
-    // Cache successful responses at the edge, keyed on the normalized query, so
-    // repeat/identical loads cost 0 eBay Browse calls (protects the daily quota).
+    // Cache successful responses at the edge so repeat/identical loads cost 0
+    // eBay Browse calls (protects the daily quota). Build the key from ONLY the
+    // params the search logic actually reads — otherwise a junk param (&z=1,
+    // jQuery's cache-buster &_=<ts>, …) spawns a distinct entry for a byte-
+    // identical upstream request, defeating the cache and draining the budget.
     const cache = caches.default;
-    const ck = new URL(request.url);
-    ["cb", "debug"].forEach(function (p) { ck.searchParams.delete(p); });
+    const ck = new URL(u.origin + "/");
+    ck.searchParams.set("source", source);
+    ck.searchParams.set("q", q.toLowerCase());
+    if (min.trim()) ck.searchParams.set("min", min.trim());
+    if (max.trim()) ck.searchParams.set("max", max.trim());
+    if (source === "reddit" && sub.trim()) ck.searchParams.set("sub", sub.trim().toLowerCase());
+    if (source === "ebay" && cat.trim()) ck.searchParams.set("cat", cat.replace(/[^0-9]/g, ""));
     ck.searchParams.sort();
     const cacheKey = new Request(ck.toString(), { method: "GET" });
     const hit = await cache.match(cacheKey);
@@ -314,8 +348,12 @@ export default {
     }
 
     try {
-      if (source === "ebay" && !(await ebayBudgetOk(env, now))) {
-        return json({ source: source, error: "daily eBay limit reached — try later" }, 429);
+      if (source === "ebay") {
+        // per-IP first: a drained IP is rejected without touching the global budget
+        if (!(await ebayIpOk(env, ip, now)))
+          return json({ source: source, error: "per-IP daily eBay limit reached — try later" }, 429);
+        if (!(await ebayBudgetOk(env, now)))
+          return json({ source: source, error: "daily eBay limit reached — try later" }, 429);
       }
       const listings = source === "ebay"
         ? await ebaySearch(env, q, min, max, now, cat)
