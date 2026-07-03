@@ -75,15 +75,15 @@ const server = http.createServer(async (req, res) => {
     });
     const listings = await fn(page, { q, region, min, max });
     // Relevance: these sites do loose keyword matching and return unrelated
-    // items (e.g. a "Ball Clock" for an "aeron" search). Keep only titles that
-    // contain at least one meaningful query word (>= 4 chars).
-    const terms = q.toLowerCase().split(/\s+/).filter((w) => w.replace(/[^a-z0-9]/g, "").length >= 4);
+    // items (even a Herman Miller *clock* for an "aeron" search). The model
+    // name is the distinctive token and is almost always last, so require the
+    // last meaningful query word (>= 3 chars) to appear in the title.
+    const words = q.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z0-9-]/g, "")).filter(Boolean);
+    let model = "";
+    for (let i = words.length - 1; i >= 0; i--) { if (words[i].length >= 3) { model = words[i]; break; } }
     const lo = min ? Number(min) : null, hi = max ? Number(max) : null;
     const filtered = listings.filter((l) => {
-      if (terms.length) {
-        const t = (l.title || "").toLowerCase();
-        if (!terms.some((w) => t.includes(w))) return false;
-      }
+      if (model && !(l.title || "").toLowerCase().includes(model)) return false;
       // Apply the numeric range here too (some sites ignore the URL params).
       if (l.price == null) return true;
       if (lo != null && l.price < lo) return false;
