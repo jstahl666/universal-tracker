@@ -109,6 +109,8 @@ padding:10px 12px;margin:2px 0 12px}
 letter-spacing:.06em;font-weight:700;margin:18px 0 10px;display:flex;
 align-items:baseline;gap:8px}
 .seclabel .note{font-weight:400;text-transform:none;letter-spacing:0;font-size:12px}
+.seclabel .listingsort{margin-left:auto;align-self:center}
+.listingsort button{padding:4px 11px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:600}
 /* marketplace buttons */
 .markets{display:flex;flex-wrap:wrap;gap:8px}
 .market{display:inline-flex;align-items:center;gap:7px;background:var(--card);
@@ -332,9 +334,34 @@ function ebayCatFor(item){return EBAY_CATS[(item.category||"").toLowerCase()]||"
 var DEFAULTS = {updated:"", config:{craigslistRegion:"sfbay"}, items:[]};
 
 // ---- state ----------------------------------------------------------------
+function loadListingSort(){try{return localStorage.getItem("ut.listingSort")||"asc";}catch(e){return "asc";}}
 var state = {items:[], config:{craigslistRegion:"sfbay"}, selected:"__all__", dirty:false,
-  updatedText:"", filter:{q:"", status:"active"}, collapsed:{}};
+  updatedText:"", filter:{q:"", status:"active"}, collapsed:{}, listingSort:loadListingSort()};
 var editingId = null;
+
+// Sort live-listing cards by price. Unpriced listings (Reddit WTB / body-priced
+// posts) always sink to the bottom regardless of direction.
+function sortListings(ls){
+  var dir=state.listingSort==="desc"?-1:1;
+  return ls.slice().sort(function(a,b){
+    var an=a.price==null, bn=b.price==null;
+    if(an&&bn)return 0;
+    if(an)return 1;
+    if(bn)return -1;
+    return (a.price-b.price)*dir;
+  });
+}
+// Re-sort every already-fetched listings box in place (no re-fetch).
+function applyListingSort(){
+  var boxes=document.querySelectorAll(".listings");
+  for(var i=0;i<boxes.length;i++){
+    var box=boxes[i];
+    if(box._listings&&box._listings.length){
+      box.innerHTML="";
+      sortListings(box._listings).forEach(function(l){box.appendChild(listingCard(l));});
+    }
+  }
+}
 
 // ---- helpers --------------------------------------------------------------
 function $(s,el){return (el||document).querySelector(s);}
@@ -524,7 +551,28 @@ function renderDetail(main,item){
 
   // live listings — for each source that supports a server-side preview
   if(proxyBase()){
-    sourcesFor(item).filter(function(m){return m.live;}).forEach(function(m){
+    var liveSources=sourcesFor(item).filter(function(m){return m.live;});
+    if(liveSources.length){
+      var sortRow=el("div","seclabel");
+      sortRow.appendChild(el("span",null,"Live listings"));
+      var seg=el("div","seg listingsort");
+      [["asc","Price ↑"],["desc","Price ↓"]].forEach(function(o){
+        var b=el("button",null,o[1]);
+        if(state.listingSort===o[0])b.className="on";
+        b.onclick=function(){
+          state.listingSort=o[0];
+          try{localStorage.setItem("ut.listingSort",o[0]);}catch(e){}
+          var bs=seg.querySelectorAll("button");
+          for(var i=0;i<bs.length;i++)bs[i].className="";
+          b.className="on";
+          applyListingSort();
+        };
+        seg.appendChild(b);
+      });
+      sortRow.appendChild(seg);
+      main.appendChild(sortRow);
+    }
+    liveSources.forEach(function(m){
       renderLiveListings(main,item,m.live,m.name,m.liveParams);
     });
   }
@@ -578,7 +626,8 @@ function renderLiveListings(main,item,source,label,extra){
     if(res.error){box.appendChild(el("div","lstatus","Couldn’t load "+label+" listings — "+res.error));return;}
     var ls=res.listings||[];
     if(!ls.length){box.appendChild(el("div","lstatus","No "+label+" listings found in range right now."));return;}
-    ls.forEach(function(l){box.appendChild(listingCard(l));});
+    box._listings=ls;                                   // keep raw for re-sort
+    sortListings(ls).forEach(function(l){box.appendChild(listingCard(l));});
   });
 }
 
