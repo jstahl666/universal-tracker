@@ -57,15 +57,55 @@ function priceFilter(min, max) {
   return "";
 }
 
-async function ebaySearch(env, q, min, max, now) {
+// Accessory/parts noise filter. Sellers list ear pads, cables, headbands,
+// casters, etc. INSIDE the real product category and — sorted by price — those
+// cheap accessories bury the actual items. Drop any title that reads as an
+// accessory/part rather than the product itself. Word-boundary matched so e.g.
+// "cushion" doesn't nuke a chair whose model name legitimately contains a word.
+// NOTE: deliberately excludes "mesh" (all-mesh chairs) to avoid false drops.
+const ACCESSORY_RX = new RegExp("\\b(" + [
+  // headphone accessories/parts
+  "ear\\s?pads?", "pads?", "cushions?", "ear\\s?cushions?", "covers?",
+  "cables?", "cords?", "connectors?", "plugs?", "adapters?", "adaptors?",
+  "headbands?", "foam", "cushioning", "replacement", "spare",
+  "decorative\\s?ring", "rings?", "grommets?", "mounts?", "stands?",
+  "hangers?", "hooks?", "holders?", "cases?", "pouch", "bag",
+  "stickers?", "decals?", "skins?", "wraps?", "kits?",
+  "transmitters?", "chargers?", "docks?", "receivers?",
+  // chair accessories/parts
+  "casters?", "wheels?", "cylinders?", "pistons?", "arm\\s?rests?", "armrests?",
+  "glides?", "screws?", "bolts?", "washers?", "parts?",
+  "headrests?", "seat\\s?pans?", "yokes?", "assembl(?:y|ies)", "springs?",
+  "spacers?", "knobs?", "handles?", "torsion", "instructions?", "manuals?",
+  "gas\\s?lift", "sector\\s?gear", "tilt\\s?(?:kit|cam|knob|engine|handle)",
+  "arm\\s?pads?", "armpads?", "slip\\s?covers?", "slipcovers?",
+  "back\\s?frames?", "frames?", "backrests?", "back\\s?rests?", "seat\\s?backs?"
+].join("|") + ")\\b", "i");
+
+async function ebaySearch(env, q, min, max, now, cat, debug) {
   const token = await ebayToken(env, now);
   const filters = ["priceCurrency:USD"];
-  const pf = priceFilter(min, max);
+  // Implicit price floor: replacement parts/accessories are always a small
+  // fraction of the product's price. When a max is set but no explicit min,
+  // floor the search at 15% of max so $2 springs / $10 ear pads never bury the
+  // real listings — while any realistic deal stays well above the floor.
+  const FLOOR_FRAC = 0.15;
+  const maxN = Number((max || "").trim());
+  let effMin = (min || "").trim();
+  if (!effMin && maxN > 0) effMin = String(Math.round(maxN * FLOOR_FRAC));
+  const pf = priceFilter(effMin, max);
   if (pf) filters.push(pf);
+  // Restrict to a leaf category (e.g. Headphones) so accessories/parts that
+  // live in OTHER categories drop out. Sellers still cross-list some accessories
+  // INTO the product category, so ACCESSORY_RX below catches the rest.
+  cat = (cat || "").trim().replace(/[^0-9]/g, "");
+  // Fetch a wide pool (50) so that after filtering accessories out we still have
+  // a healthy set of real listings to show.
   const url = "https://api.ebay.com/buy/browse/v1/item_summary/search"
     + "?q=" + encodeURIComponent(q)
-    + "&limit=10"
+    + "&limit=50"
     + "&sort=price"
+    + (cat ? "&category_ids=" + cat : "")
     + "&filter=" + encodeURIComponent(filters.join(","));
   const r = await fetch(url, {
     headers: {
@@ -75,10 +115,12 @@ async function ebaySearch(env, q, min, max, now) {
   });
   if (!r.ok) throw new Error("eBay search HTTP " + r.status + ": " + (await r.text()).slice(0, 300));
   const j = await r.json();
-  return (j.itemSummaries || []).map(function (it) {
+  return (j.itemSummaries || []).filter(function (it) {
+    return !ACCESSORY_RX.test(it.title || "");
+  }).slice(0, 12).map(function (it) {
     const img = (it.image && it.image.imageUrl) ||
       (it.thumbnailImages && it.thumbnailImages[0] && it.thumbnailImages[0].imageUrl) || "";
-    return {
+    const out = {
       title: it.title || "",
       price: it.price ? Number(it.price.value) : null,
       currency: (it.price && it.price.currency) || "USD",
@@ -87,6 +129,10 @@ async function ebaySearch(env, q, min, max, now) {
       condition: it.condition || "",
       location: (it.itemLocation && (it.itemLocation.city || it.itemLocation.stateOrProvince || it.itemLocation.country)) || "",
     };
+    // debug=1 → surface the item's categories so we can discover the right
+    // category_ids to hardcode in the frontend, then this flag is dropped.
+    if (debug) out._cats = (it.categories || []).map(function (c) { return c.categoryId + ":" + c.categoryName; });
+    return out;
   });
 }
 
@@ -167,6 +213,8 @@ export default {
     const min = u.searchParams.get("min") || "";
     const max = u.searchParams.get("max") || "";
     const sub = u.searchParams.get("sub") || "";
+    const cat = u.searchParams.get("cat") || "";
+    const debug = u.searchParams.get("debug") === "1";
     const json = function (obj, status) {
       return new Response(JSON.stringify(obj), {
         status: status || 200,
@@ -178,7 +226,7 @@ export default {
     };
     if (!q) return json({ error: "missing q" }, 400);
     try {
-      if (source === "ebay") return json({ source: source, listings: await ebaySearch(env, q, min, max, now) });
+      if (source === "ebay") return json({ source: source, listings: await ebaySearch(env, q, min, max, now, cat, debug) });
       if (source === "reddit") return json({ source: source, listings: await redditSearch(sub, q, min, max) });
       return json({ source: source, error: "unknown source: " + source }, 400);
     } catch (e) {

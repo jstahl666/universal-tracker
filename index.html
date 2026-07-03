@@ -318,6 +318,16 @@ function sourcesFor(item){
   return MARKETS.filter(function(m){return m.all||(m.cats&&m.cats.indexOf(cat)>=0);});
 }
 
+// eBay leaf-category IDs per tracked category. Passed to the Worker as &cat= so
+// the Browse API is restricted to the actual product category — this plus the
+// Worker's accessory filter keeps parts (ear pads, cables, casters, springs)
+// out of the live results. Add a line here when you track a new category.
+var EBAY_CATS = {
+  "headphones": "112529",   // Consumer Electronics > Portable Audio & Headphones > Headphones
+  "office chair": "257900"  // Business & Industrial > Office > Office Chairs & Stools
+};
+function ebayCatFor(item){return EBAY_CATS[(item.category||"").toLowerCase()]||"";}
+
 // Fresh install starts empty — add whatever you want to track.
 var DEFAULTS = {updated:"", config:{craigslistRegion:"sfbay"}, items:[]};
 
@@ -542,6 +552,7 @@ function fetchListings(source,item,extra){
   var mx=item.priceMax!=null?Math.round(item.priceMax):"";
   var url=base+"?source="+encodeURIComponent(source)+"&q="+encodeURIComponent(queryOf(item))+
     (mn!==""?"&min="+mn:"")+(mx!==""?"&max="+mx:"");
+  if(source==="ebay"){var ec=ebayCatFor(item);if(ec)url+="&cat="+encodeURIComponent(ec);}
   if(extra)for(var k in extra)url+="&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]);
   return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
 }
