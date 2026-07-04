@@ -244,7 +244,19 @@ function attrOf(block, tag, attr) {
   const m = block.match(new RegExp("<" + tag + "\\b[^>]*\\b" + attr + '="([^"]*)"', "i"));
   return m ? m[1] : "";
 }
-async function redditSearch(sub, q, min, max) {
+// ISO timestamp → compact relative age ("5h ago", "3d ago"), so a post's age reads
+// the same way craigslist's does. Empty string if unparseable.
+function relAge(iso, now) {
+  const t = Date.parse(iso || "");
+  if (isNaN(t)) return "";
+  const s = Math.max(0, (now - t) / 1000);
+  if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  if (s < 604800) return Math.floor(s / 86400) + "d ago";
+  if (s < 2629800) return Math.floor(s / 604800) + "w ago";
+  return Math.floor(s / 2629800) + "mo ago";
+}
+async function redditSearch(sub, q, min, max, now) {
   sub = (sub || "").trim().replace(/[^a-z0-9_]/gi, "");
   if (!sub) throw new Error("reddit: missing sub");
   const url = "https://www.reddit.com/r/" + sub + "/search.rss?restrict_sr=1&sort=new&limit=25&q=" + encodeURIComponent(q);
@@ -272,6 +284,7 @@ async function redditSearch(sub, q, min, max) {
       image: "",
       condition: "",
       location: "",
+      posted: relAge(textOf(block, "published") || textOf(block, "updated"), now),
     };
   }).filter(function (l) {
     if (!l.title) return false;
@@ -411,7 +424,7 @@ export default {
       }
       const listings = source === "ebay"
         ? await ebaySearch(env, q, min, max, now, cat)
-        : await redditSearch(sub, q, min, max);
+        : await redditSearch(sub, q, min, max, now);
       const resp = json({ source: source, listings: listings });
       if (ctx && ctx.waitUntil) ctx.waitUntil(cache.put(cacheKey, resp.clone()));
       return resp;
