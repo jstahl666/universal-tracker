@@ -6,7 +6,7 @@
    - Cross-origin (Cloudflare Worker live listings, eBay images): NOT intercepted —
      they must stay live and are allowed to fail gracefully by the app itself.
 */
-const VERSION = "ut-v2";
+const VERSION = "ut-v3";
 const CORE = [
   "./",
   "./index.html",
@@ -64,9 +64,11 @@ self.addEventListener("fetch", (e) => {
   }
 
   if (isNav) {
-    // network-first for the page, fall back to the cached shell offline
+    // network-first for the page, fall back to the cached shell offline.
+    // {cache:"no-store"} bypasses the browser HTTP cache so a fresh deploy is
+    // ALWAYS reflected when online (never a stale shell); offline still falls back.
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: "no-store" })
         .then((res) => {
           const copy = res.clone();
           caches.open(VERSION).then((c) => c.put(req, copy));

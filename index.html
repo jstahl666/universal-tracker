@@ -41,7 +41,15 @@ border-radius:9px;padding:10px 14px;margin:0 0 16px;display:flex;
 gap:12px;align-items:center;flex-wrap:wrap;font-size:13px}
 .banner .grow{flex:1 1 auto;min-width:160px}
 .layout{display:grid;grid-template-columns:268px 1fr;gap:20px;align-items:start}
-@media(max-width:720px){.layout{grid-template-columns:1fr}}
+@media(max-width:720px){
+  .layout{grid-template-columns:1fr}
+  .side{position:static}
+  /* Single-pane master–detail: show the tracking list OR the open item, never
+     stack the detail below the full list (where it was pushed off-screen and
+     was unreachable by scrolling). Toggled by body.detail-mode in render(). */
+  body.detail-mode .side{display:none}
+  body:not(.detail-mode) .main{display:none}
+}
 /* sidebar */
 .side{background:var(--card);border:1px solid var(--border);border-radius:12px;
 padding:10px;position:sticky;top:14px}
@@ -474,6 +482,9 @@ function loadWatchlist(){
 function statusChip(it){var s=statusOf(it);return el("span","chip st-"+s,s.charAt(0).toUpperCase()+s.slice(1));}
 function render(){
   var n=state.items.length;
+  // Mobile single-pane switch: detail-mode when a real item is open (see media query).
+  var hasDetail=state.selected!=="__all__"&&state.items.some(function(i){return i.id===state.selected;});
+  document.body.classList.toggle("detail-mode",hasDetail);
   // Build via text nodes, not innerHTML: state.updatedText carries watchlist.json's
   // `updated` field verbatim, so an innerHTML sink here is a stored-XSS primitive
   // if that file is ever attacker-influenced (malicious PR / fork).
