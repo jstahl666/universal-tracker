@@ -34,7 +34,7 @@ h1{font-size:24px;margin:0}
 border-radius:8px;padding:7px 12px;font-size:13px;transition:border-color .12s;
 text-decoration:none;display:inline-block}
 .btn:hover{border-color:var(--accent)}
-.btn.primary{background:var(--accent);border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.primary:hover{filter:brightness(1.1)}
 .banner{background:#2a2410;border:1px solid #5a4a14;color:#ffd479;
 border-radius:9px;padding:10px 14px;margin:0 0 16px;display:flex;
@@ -179,6 +179,15 @@ textarea{min-height:60px;resize:vertical}
 .steps{font-size:13px;color:var(--dim);padding-left:18px;margin:6px 0 14px}
 .steps li{margin-bottom:4px}
 .danger{color:var(--warn)}
+/* --- uitest hardening: wrap long unbroken content so it can't blow out the
+   layout / force horizontal scroll on narrow screens --- */
+.panelhead h2,.tile .name,.grouphead h3,.listing .lt,.notes{overflow-wrap:anywhere}
+.item .nm{min-width:0}
+.item .nm span{min-width:0;overflow-wrap:anywhere}
+/* visible, brand-consistent keyboard focus on every interactive element
+   (text inputs already restyle their border on :focus above) */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seg button:focus-visible{outline-offset:-2px}
 </style>
 </head>
 <body>
@@ -187,7 +196,7 @@ textarea{min-height:60px;resize:vertical}
     <h1>📋 Universal Tracker</h1>
     <div class="toolbar">
       <span class="cl" title="Craigslist needs a region for its search links">CL region
-        <input id="clRegion" placeholder="sfbay">
+        <input id="clRegion" placeholder="sfbay" aria-label="Craigslist region">
       </span>
       <button class="btn" id="refreshBtn" title="Reload items">↻ Refresh</button>
     </div>
@@ -201,7 +210,7 @@ textarea{min-height:60px;resize:vertical}
   </div>
 
   <div class="controls">
-    <input id="q" class="search" type="search" placeholder="Search items, categories, notes…" autocomplete="off">
+    <input id="q" class="search" type="search" placeholder="Search items, categories, notes…" aria-label="Search tracked items" autocomplete="off">
     <div class="seg" id="statusSeg" role="group" aria-label="Filter by status">
       <button type="button" data-st="active" class="on">Active</button>
       <button type="button" data-st="paused">Paused</button>
@@ -221,7 +230,7 @@ textarea{min-height:60px;resize:vertical}
 </div>
 
 <!-- Add / edit modal -->
-<div class="modal" id="editModal" hidden>
+<div class="modal" id="editModal" role="dialog" aria-modal="true" aria-labelledby="editTitle" hidden>
   <div class="sheet">
     <h3 id="editTitle">Add item</h3>
     <label for="f_name">Name</label>
@@ -258,6 +267,7 @@ textarea{min-height:60px;resize:vertical}
     <input id="f_link" placeholder="https://…">
     <label for="f_notes">Notes (optional)</label>
     <textarea id="f_notes" placeholder="Anything you want to remember…"></textarea>
+    <div class="hint danger" id="editErr" role="alert" hidden style="margin-top:12px"></div>
     <div class="row">
       <button class="btn" id="editCancel">Cancel</button>
       <button class="btn primary" id="editSave">Save</button>
@@ -269,9 +279,9 @@ textarea{min-height:60px;resize:vertical}
 </div>
 
 <!-- Save-to-GitHub modal -->
-<div class="modal" id="saveModal" hidden>
+<div class="modal" id="saveModal" role="dialog" aria-modal="true" aria-labelledby="saveTitle" hidden>
   <div class="sheet">
-    <h3>Save to GitHub</h3>
+    <h3 id="saveTitle">Save to GitHub</h3>
     <p style="font-size:13px;color:var(--dim);margin-top:0">This makes your tracked items the same on every device. The JSON below has been copied to your clipboard.</p>
     <ol class="steps">
       <li>Click <b>Open GitHub editor</b> (new tab).</li>
@@ -494,6 +504,8 @@ function renderSidebar(){
     var sec=el("div","catsec");
     var collapsed=!!state.collapsed[g.cat];
     var h=el("button","cathead"+(collapsed?" col":""));
+    h.setAttribute("aria-expanded",String(!collapsed));
+    h.setAttribute("aria-label",(collapsed?"Expand ":"Collapse ")+g.cat);
     h.appendChild(el("span","car","▾"));
     h.appendChild(el("span",null,g.cat));
     h.appendChild(el("span","cnt",String(g.items.length)));
@@ -534,10 +546,16 @@ function renderAll(main){
   groupByCat(vis).forEach(function(g){
     var collapsed=!!state.collapsed[g.cat];
     var gh=el("div","grouphead"+(collapsed?" col":""));
+    gh.setAttribute("role","button");
+    gh.setAttribute("tabindex","0");
+    gh.setAttribute("aria-expanded",String(!collapsed));
+    gh.setAttribute("aria-label",(collapsed?"Expand ":"Collapse ")+g.cat);
     gh.appendChild(el("span","car","▾"));
     gh.appendChild(el("h3",null,g.cat));
     gh.appendChild(el("span","cnt",g.items.length+" item"+(g.items.length===1?"":"s")));
-    gh.onclick=function(){state.collapsed[g.cat]=!collapsed;render();};
+    var toggleGroup=function(){state.collapsed[g.cat]=!collapsed;render();};
+    gh.onclick=toggleGroup;
+    gh.onkeydown=function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleGroup();}};
     main.appendChild(gh);
     if(!collapsed){var grid=el("div","grid");g.items.forEach(function(it){grid.appendChild(tile(it));});main.appendChild(grid);}
   });
@@ -699,20 +717,40 @@ function openEdit(id){
   $("#f_link").value=it?it.link:"";
   $("#f_notes").value=it?it.notes:"";
   $("#deleteRow").hidden=!it;
+  showEditErr("");
   $("#editModal").hidden=false;
   $("#f_name").focus();
 }
+// Keep keyboard focus inside an open modal (Tab/Shift+Tab wrap at the ends)
+// so it can't escape to the page behind the dialog. Pairs with aria-modal.
+function trapFocus(e){
+  if(e.key!=="Tab")return;
+  var modal=$("#editModal").hidden?($("#saveModal").hidden?null:$("#saveModal")):$("#editModal");
+  if(!modal)return;
+  var f=modal.querySelectorAll('a[href],button:not([disabled]),input,select,textarea,[tabindex]:not([tabindex="-1"])');
+  f=Array.prototype.filter.call(f,function(x){return x.offsetParent!==null;});
+  if(!f.length)return;
+  var first=f[0],last=f[f.length-1];
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+}
 function closeEdit(){$("#editModal").hidden=true;editingId=null;}
+function showEditErr(msg){var e=$("#editErr");if(msg){e.textContent=msg;e.hidden=false;}else{e.textContent="";e.hidden=true;}}
 function saveEdit(){
   var name=$("#f_name").value.trim();
-  if(!name){$("#f_name").focus();return;}
+  if(!name){showEditErr("Give the item a name.");$("#f_name").focus();return;}
+  var pmin=numOrNull($("#f_min").value),pmax=numOrNull($("#f_max").value);
+  // Reject nonsensical prices before they land in the watchlist / marketplace URLs.
+  if((pmin!=null&&pmin<0)||(pmax!=null&&pmax<0)){showEditErr("Price can't be negative.");$("#f_min").focus();return;}
+  if(pmin!=null&&pmax!=null&&pmin>pmax){showEditErr("Min price is higher than max — swap them or clear one.");$("#f_min").focus();return;}
+  showEditErr("");
   var fields={
     name:name,
     category:$("#f_category").value.trim()||"Uncategorized",
     status:$("#f_status").value,
     query:$("#f_query").value.trim(),
-    priceMin:numOrNull($("#f_min").value),
-    priceMax:numOrNull($("#f_max").value),
+    priceMin:pmin,
+    priceMax:pmax,
     link:$("#f_link").value.trim(),
     notes:$("#f_notes").value.trim()
   };
@@ -772,6 +810,7 @@ $("#statusSeg").addEventListener("click",function(e){
   var b=e.target.closest("button[data-st]");if(!b)return;
   state.filter.status=b.getAttribute("data-st");render();});
 document.addEventListener("keydown",function(e){if(e.key==="Escape"){closeEdit();$("#saveModal").hidden=true;}});
+document.addEventListener("keydown",trapFocus);
 $("#f_name").addEventListener("keydown",function(e){if(e.key==="Enter")saveEdit();});
 
 // ---- boot -----------------------------------------------------------------
