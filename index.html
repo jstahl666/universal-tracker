@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Universal Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0F0F1A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tracker">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <style>
 :root{--bg:#0F0F1A;--card:#1A1B2E;--border:#28294A;--text:#E8E8F4;
 --dim:#9090BB;--accent:#315CFD;--ok:#3DB86A;--warn:#FF7043;--soft:#13142440;}
@@ -772,6 +780,13 @@ function boot(){
   loadWatchlist().then(render);
 }
 boot();
+
+// ---- PWA service worker ---------------------------------------------------
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("service-worker.js").catch(function(){});
+  });
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,17 @@
+{
+  "name": "Universal Tracker",
+  "short_name": "Tracker",
+  "description": "Track any item across marketplaces — watchlist, price ranges, and live listings.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F0F1A",
+  "theme_color": "#0F0F1A",
+  "categories": ["productivity", "shopping", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

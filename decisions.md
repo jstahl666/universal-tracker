@@ -49,3 +49,20 @@
 - **Worker URL lives in `watchlist.json` config**, not hardcoded. If `config.listingsProxy`
   is unset the page silently falls back to buttons-only, so the site never depends on the
   Worker being up.
+
+- **"PC + Android app" = PWA, not Flutter (2026-07-06).** Asked to make it an app "like the
+  task widget." Rejected full-native Flutter: it would throw away the battle-tested HTML UI
+  (8 stress rounds, ~51 bugs) and force a new sync backend to replace the manual-GitHub flow,
+  for a tracker that already runs in any browser on phone + PC. Also rejected a Flutter
+  webview wrapper (real .apk/.exe but no real gain over an installable web page). Shipped a
+  **PWA**: `manifest.webmanifest` + `service-worker.js` + `icons/`. Installs as a home-screen
+  icon on Android and a desktop app on Windows (Chrome/Edge → Install), opens standalone,
+  works offline. Same URL, zero rewrite, no new server.
+
+- **SW caching strategy.** App shell (icons/manifest) cache-first + precached. Navigation
+  and `watchlist.json` network-first (so deploys + data edits show when online, cached copy
+  serves offline). Cross-origin listings-proxy calls are NOT intercepted — they stay live and
+  the app degrades on its own. GOTCHA fixed in test: the app fetches `watchlist.json?cb=<ts>`
+  (cache-bust), so the SW stores it under a query-stripped canonical key and reads back with
+  `{ignoreSearch:true}` — otherwise the offline fallback missed and showed 0 items. Verified
+  end-to-end offline (server killed → 17 items still render). Cache version `ut-v2`.
