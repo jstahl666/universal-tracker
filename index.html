@@ -669,7 +669,21 @@ function fetchListings(source,item,extra){
   if(source==="ebay"){var ec=ebayCatFor(item);if(ec)url+="&cat="+encodeURIComponent(ec);}
   if(source==="craigslist"){url+="&region="+encodeURIComponent(clRegion());}
   if(extra)for(var k in extra)url+="&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]);
-  return fetch(url).then(function(r){return r.json();}).catch(function(e){return {error:String(e&&e.message||e)};});
+  // Time-box the request. The homeserver scraper (Craigslist) can hold a browser
+  // connection open for minutes; without this the listing box spins "Loading…"
+  // forever and the working sources look broken too. Abort + show a clear error.
+  var ctrl=("AbortController" in window)?new AbortController():null;
+  var TIMEOUT=scrape?25000:15000;                 // scraper is slower than the API worker
+  var timer=ctrl?setTimeout(function(){ctrl.abort();},TIMEOUT):null;
+  return fetch(url,ctrl?{signal:ctrl.signal}:undefined).then(function(r){
+    if(timer)clearTimeout(timer);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    return r.json();
+  }).catch(function(e){
+    if(timer)clearTimeout(timer);
+    var msg=(e&&e.name==="AbortError")?"timed out":String(e&&e.message||e);
+    return {error:msg};
+  });
 }
 function listingCard(l){
   var a=el("a","listing");a.href=safeUrl(l.url);a.target="_blank";a.rel="noopener";
@@ -691,7 +705,9 @@ function listingCard(l){
 }
 function renderLiveListings(main,item,source,label,extra){
   var sl=el("div","seclabel");sl.appendChild(el("span",null,"Live "+label+" listings"));main.appendChild(sl);
-  var box=el("div","listings");var status=el("div","lstatus","Loading "+label+" listings…");box.appendChild(status);main.appendChild(box);
+  var box=el("div","listings");
+  var loadMsg="Loading "+label+" listings…"+(SCRAPER_SOURCES[source]?" (can take up to ~25s)":"");
+  var status=el("div","lstatus",loadMsg);box.appendChild(status);main.appendChild(box);
   fetchListings(source,item,extra).then(function(res){
     box.innerHTML="";
     if(!res){box.appendChild(el("div","lstatus","Listings proxy not configured."));return;}
