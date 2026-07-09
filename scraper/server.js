@@ -19,6 +19,9 @@
 import http from "http";
 import { chromium } from "playwright";
 import { craigslist } from "./sources/craigslist.js";
+// The listing-relevance gate lives in ../shared/relevance.js — one copy, shared
+// verbatim with the eBay/Reddit Worker so the two runtimes can't drift.
+import { modelToken, keepListing } from "../shared/relevance.js";
 
 const PORT = process.env.PORT || 8791;  // 8080 is taken by another homeserver service
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
@@ -108,93 +111,6 @@ function globallyRateLimited(now) {
 }
 
 const SOURCES = { craigslist };
-
-// ---- accessory/parts filter (same shape as the eBay Worker) ---------------
-// Two tiers so a real product that merely mentions an accessory ("Leap with
-// headrest") is kept, while accessory-led listings ("Headrest for Aeron") drop.
-const PART_STRONG = [
-  "replacement", "spare", "for\\s+parts", "torsion", "gas\\s?lift",
-  "sector\\s?gear", "grommets?", "tilt\\s?(?:kit|cam|knob|engine|handle)",
-  "instructions?", "owners?\\s?manual",
-  "repair\\s?(?:kits?|lines?|cables?|cords?|parts?)", // part, not a bare "repairs"
-];
-const PART_WEAK = [
-  "ear\\s?pads?", "pads?", "cushions?", "covers?", "cables?", "cords?",
-  "connectors?", "plugs?", "adapters?", "adaptors?", "headbands?", "foam",
-  "decorative\\s?rings?", "rings?", "mounts?", "stands?", "hangers?", "hooks?",
-  "holders?", "cases?", "pouch", "bags?", "skins?", "wraps?", "kits?",
-  "transmitters?", "chargers?", "docks?", "receivers?", "casters?", "wheels?",
-  "cylinders?", "pistons?", "glides?", "screws?", "bolts?", "washers?", "parts?",
-  "springs?", "knobs?", "handles?", "manuals?", "frames?", "backrests?",
-  "back\\s?rests?", "back\\s?frames?", "mechanisms?", "controls?", "pieces?",
-  "panels?", "cubicles?", "headrests?", "seat\\s?pans?", "seat\\s?backs?",
-  "seats?", "yokes?", "spacers?", "arm\\s?rests?", "armrests?", "arm\\s?pads?",
-  "armpads?", "slip\\s?covers?", "slipcovers?", "stickers?", "decals?",
-];
-const STRONG_RX = new RegExp("\\b(?:" + PART_STRONG.join("|") + ")\\b", "i");
-const WEAK_ANY_RX = new RegExp("\\b(?:" + PART_WEAK.join("|") + ")\\b", "i");
-const WEAK_LEAD_RX = new RegExp(
-  "^\\s*(?:\\(?\\d+\\)?\\s+)?(?:new|used|oem|genuine|original|premium|pair\\s+of|set\\s+of|lot\\s+of|pair|set|lot|for)?\\s*(?:" +
-  PART_WEAK.join("|") + ")\\b", "i");
-// Kept IDENTICAL to worker.js isAccessory — the two must not drift (a whole
-// product kept on the eBay path but dropped here silently hides real listings).
-// "<weak> … for <BRAND or MODEL>" is the accessory signal; a use-case/spec after
-// "for" ("cable for amp", "casters for carpet") is a whole product and must NOT
-// match. Matching the positive brand/model target (not a position guard) spares
-// word-named products (Aeron/Sundara) and model-led products alike.
-const BRAND_WORDS = [
-  "sennheiser", "hifi\\s?man", "herman\\s?miller", "herman", "miller", "steelcase",
-  "akg", "beyerdynamic", "beyer", "audeze", "focal", "grado", "fostex", "denon",
-  "meze", "koss", "sony", "bose", "philips", "drop", "massdrop", "dan\\s?clark",
-  "audio\\s?technica", "sivga", "moondrop", "hifiman", "haworth", "humanscale", "knoll",
-];
-const FOR_TARGET = "(?:" + BRAND_WORDS.join("|") + "|[a-z]+\\d[a-z0-9]*|\\d{3,})";
-const WEAK_FOR_RX = new RegExp(
-  "\\b(?:" + PART_WEAK.join("|") + ")\\b[\\s\\S]{0,20}\\bfor\\b\\s+" + FOR_TARGET + "\\b", "i");
-const MODEL_NUM_RX = /\b(?:[a-z]+\d[a-z0-9]*|\d{3,})\b/i;
-function isAccessory(title) {
-  const t = title || "";
-  if (STRONG_RX.test(t)) return true;
-  if (WEAK_LEAD_RX.test(t)) return true;
-  const m = t.match(MODEL_NUM_RX);
-  if (m && m.index > 0 && WEAK_ANY_RX.test(t.slice(0, m.index))) return true;
-  if (WEAK_FOR_RX.test(t)) return true;
-  return false;
-}
-
-// Distinctive model token: prefer a digit-bearing token (model numbers), else
-// the last meaningful word. Normalizing away spaces/hyphens lets "HE-400SE",
-// "HE 400 SE" and "HE400SE" all match. Fixes generic 'pro' and formatting drops.
-// Generic category filler that must NOT be chosen as the distinctive token:
-// "steelcase office chair" should gate on "steelcase", not "chair" (which would
-// drop every real "Steelcase Leap V2" whose title omits the word "chair").
-const GENERIC_WORDS = new Set([
-  "office", "chair", "chairs", "desk", "desks", "seat", "seating", "stool",
-  "headphone", "headphones", "earphone", "earphones", "headset", "monitor",
-  "monitors", "speaker", "speakers", "ergonomic", "mesh", "task", "gaming",
-  "wireless", "used", "new", "the", "pair", "set",
-]);
-function modelToken(q) {
-  // split on spaces AND hyphens so "ath-r70x" yields "r70x", not a fused
-  // "athr70x" that wouldn't match an "R70x"-only title.
-  const words = q.toLowerCase().split(/[\s-]+/).map((w) => w.replace(/[^a-z0-9]/g, "")).filter(Boolean);
-  const digits = words.filter((w) => /\d/.test(w) && w.length >= 2);
-  if (digits.length) return digits[digits.length - 1];
-  // No model number → prefer the last DISTINCTIVE (non-generic) word, e.g. a
-  // brand. Fall back to no gate ("") rather than gating on a category noun.
-  for (let i = words.length - 1; i >= 0; i--)
-    if (words[i].length >= 3 && !GENERIC_WORDS.has(words[i])) return words[i];
-  return "";
-}
-function matchesModel(title, model) {
-  if (!model) return true;
-  const nt = (title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  // "6xx"-style placeholder is a wildcard: match the literal ("hd6xx") OR the
-  // real numbered variants it stands in for ("hd650"/"hd600"/"hd660").
-  const xx = model.match(/^(\d)xx$/);
-  if (xx) return new RegExp(xx[1] + "(?:xx|\\d\\d)").test(nt);
-  return nt.includes(model);
-}
 
 // ---- HTTP -----------------------------------------------------------------
 const ALLOWED_ORIGINS = [
@@ -289,15 +205,9 @@ const server = http.createServer(async (req, res) => {
     if (aborted) return; // client already gave up — release the slot, skip the browser
     const listings = await scrape(SOURCES[source], { q, region, min, max });
     const model = modelToken(q);
-    const lo = min ? Number(min) : null, hi = max ? Number(max) : null;
-    const filtered = listings.filter((l) => {
-      if (!matchesModel(l.title, model)) return false;
-      if (isAccessory(l.title)) return false;
-      if (l.price == null) return true;
-      if (lo != null && l.price < lo) return false;
-      if (hi != null && l.price > hi) return false;
-      return true;
-    }).slice(0, 20);
+    const filtered = listings
+      .filter((l) => keepListing(l.title, l.price, { model, min, max }))
+      .slice(0, 20);
     send(res, 200, { source, listings: filtered }, cors);
   } catch (e) {
     // Log full error server-side; return a generic message to the client. A dead
