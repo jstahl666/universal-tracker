@@ -11,3 +11,8 @@ ebay_creds.txt
 
 # local PWA test artifacts
 .playwright-mcp/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
