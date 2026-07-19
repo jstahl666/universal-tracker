@@ -7,7 +7,7 @@ vanilla JS, no backend. Data in `watchlist.json`, synced via a manual GitHub-edi
 ## Origin
 A generic tracker (`tracker.html`) had grown inside the **chair-tracker** repo — it was
 already domain-agnostic but seeded with chair defaults and wired to chair-tracker's
-Slickdeals deal feed. Jeremy asked to pull it out into its own clean project.
+Slickdeals deal feed. It was pulled out into its own clean project.
 
 Stripped for this fork:
 - chair seed items (DEFAULTS.items now `[]`)

@@ -13,7 +13,7 @@
 - [x] Section 3 — Reddit audio markets (r/AVexchange, r/hardwareswap): `.rss` feed source (JSON is 403'd), tested via `wrangler dev`
 - [x] Section 2 — Craigslist: TESTED + ABANDONED (server-side 403 "blocked"; stays a button). See decisions.md
 - [x] Facebook/OfferUp/Mercari/Amazon stay click-out buttons (no API)
-- [ ] **WAITING ON EBAY:** dev keyset approval (Jeremy applied). Then: `wrangler login` → `wrangler secret put` both keys → `wrangler deploy` → give me the Worker URL to wire into watchlist.json config.listingsProxy. Reddit will start working the moment the Worker is deployed too (no keys needed).
+- [ ] **WAITING ON EBAY:** dev keyset approval (application submitted). Then: `wrangler login` → `wrangler secret put` both keys → `wrangler deploy` → give me the Worker URL to wire into watchlist.json config.listingsProxy. Reddit will start working the moment the Worker is deployed too (no keys needed).
 
 ## Next / maybe
 - [ ] Consider more marketplaces (StockX/Reverb/Discogs) or making the list configurable
